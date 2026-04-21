@@ -1,10 +1,3 @@
-# ============================================================
-# SMIC - Sistema de Monitoreo Inteligente del Conductor
-# Archivo: camara/distraccion.py
-# Descripcion: Deteccion de distraccion por posicion de nariz
-# Autor: Reyes, Joaquin
-# ============================================================
-
 import cv2
 import mediapipe as mp
 import time
