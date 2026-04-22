@@ -1,10 +1,3 @@
-# ============================================================
-# SMIC - Sistema de Monitoreo Inteligente del Conductor
-# Archivo: camara/somnolencia.py
-# Descripcion: Deteccion de somnolencia mediante calculo de EAR
-# Autor: Reyes, Joaquin
-# ============================================================
-
 import cv2
 import mediapipe as mp
 import time
