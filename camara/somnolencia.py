@@ -1,3 +1,10 @@
+# ============================================================
+# SMIC - Sistema de Monitoreo Inteligente del Conductor
+# Archivo: camara/somnolencia.py
+# Descripcion: Deteccion de somnolencia mediante calculo de EAR
+# Autor: Reyes, Joaquin
+# ============================================================
+
 import cv2
 import mediapipe as mp
 import time
@@ -9,7 +16,6 @@ SEGUNDOS_ALERTA = 2.0
 COLOR_VERDE     = (0, 255, 0)
 COLOR_ROJO      = (0, 0, 255)
 
-# Indices de los puntos del ojo en MediaPipe
 OJO_DER = [362, 385, 387, 263, 373, 380]
 OJO_IZQ = [33,  160, 158, 133, 153, 144]
 
@@ -81,11 +87,13 @@ class DetectorSomnolencia:
         )
         self.tiempo_ojos_cerrados = None
         self.dormido              = False
+        self.ultimo_ear           = None
         print("Detector de somnolencia iniciado")
 
-    def analizar(self, frame):
+    def analizar(self, frame, dibujar=True):
         """
         Analiza un frame y detecta somnolencia.
+        Si dibujar=False no dibuja texto en el frame.
         Devuelve (frame_anotado, esta_dormido).
         """
         alto, ancho = frame.shape[:2]
@@ -94,7 +102,8 @@ class DetectorSomnolencia:
 
         if not resultado.multi_face_landmarks:
             self.tiempo_ojos_cerrados = None
-            self.dormido = False
+            self.dormido              = False
+            self.ultimo_ear           = None
             return frame, False
 
         landmarks = resultado.multi_face_landmarks[0].landmark
@@ -105,6 +114,8 @@ class DetectorSomnolencia:
         ear_izq = calcular_ear(puntos_izq)
         ear_der = calcular_ear(puntos_der)
         ear_avg = (ear_izq + ear_der) / 2.0
+
+        self.ultimo_ear = ear_avg
 
         if ear_avg < EAR_UMBRAL:
             if self.tiempo_ojos_cerrados is None:
@@ -118,7 +129,9 @@ class DetectorSomnolencia:
             self.dormido              = False
 
         frame = dibujar_ojos(frame, puntos_izq, puntos_der)
-        frame = mostrar_ear(frame, ear_izq, ear_der, self.dormido)
+
+        if dibujar:
+            frame = mostrar_ear(frame, ear_izq, ear_der, self.dormido)
 
         return frame, self.dormido
 
