@@ -5,6 +5,9 @@
 1. Activar entorno virtual:
    venv\Scripts\activate
 
+   1.1 si da error
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
 2. Actualizar main:
    git checkout main
    git pull origin main
