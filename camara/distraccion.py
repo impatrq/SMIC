@@ -1,24 +1,15 @@
-# ============================================================
-# SMIC - Sistema de Monitoreo Inteligente del Conductor
-# Archivo: camara/distraccion.py
-# Descripcion: Deteccion de distraccion por posicion de nariz
-# Autor: Reyes, Joaquin
-# ============================================================
-
 import cv2
 import mediapipe as mp
 import time
 
 # --- CONSTANTES ---
-# Estos valores se pueden ajustar segun la posicion de la camara
-UMBRAL_HORIZONTAL  = 0.15   # cuanto se puede mover la nariz a los lados
-UMBRAL_VERTICAL    = 0.12   # cuanto se puede mover la nariz arriba/abajo
+UMBRAL_HORIZONTAL  = 0.15
+UMBRAL_VERTICAL    = 0.12
 SEGUNDOS_ALERTA    = 2.0
 COLOR_VERDE        = (0, 255, 0)
 COLOR_ROJO         = (0, 0, 255)
 COLOR_AMARILLO     = (0, 255, 255)
 
-# Puntos de referencia
 NARIZ        = 1
 FRENTE       = 10
 MENTON       = 152
@@ -38,10 +29,6 @@ def calcular_posicion_nariz(landmarks, ancho, alto):
     Calcula la posicion normalizada de la nariz
     respecto al centro del rostro.
     Devuelve (offset_x, offset_y) entre -1 y 1.
-    offset_x negativo = mira izquierda
-    offset_x positivo = mira derecha
-    offset_y negativo = mira arriba
-    offset_y positivo = mira abajo (celular)
     """
     nariz       = obtener_punto(landmarks, NARIZ,       ancho, alto)
     mejilla_izq = obtener_punto(landmarks, MEJILLA_IZQ, ancho, alto)
@@ -49,15 +36,12 @@ def calcular_posicion_nariz(landmarks, ancho, alto):
     frente      = obtener_punto(landmarks, FRENTE,      ancho, alto)
     menton      = obtener_punto(landmarks, MENTON,      ancho, alto)
 
-    # Centro horizontal del rostro
-    centro_x = (mejilla_izq[0] + mejilla_der[0]) / 2
+    centro_x     = (mejilla_izq[0] + mejilla_der[0]) / 2
     ancho_rostro = mejilla_der[0] - mejilla_izq[0]
 
-    # Centro vertical del rostro
-    centro_y = (frente[1] + menton[1]) / 2
+    centro_y    = (frente[1] + menton[1]) / 2
     alto_rostro = menton[1] - frente[1]
 
-    # Offset normalizado (-1 a 1)
     if ancho_rostro == 0 or alto_rostro == 0:
         return 0, 0
 
@@ -115,7 +99,6 @@ class DetectorDistraccion:
     """
     Detecta distraccion analizando la posicion
     relativa de la nariz respecto al centro del rostro.
-    Funciona con cualquier angulo de camara.
     """
 
     def __init__(self):
@@ -129,9 +112,10 @@ class DetectorDistraccion:
         self.distraido        = False
         print("Detector de distraccion iniciado")
 
-    def analizar(self, frame):
+    def analizar(self, frame, dibujar=True):
         """
         Analiza un frame y detecta distraccion.
+        Si dibujar=False no dibuja texto en el frame.
         Devuelve (frame_anotado, esta_distraido, direccion).
         """
         alto, ancho = frame.shape[:2]
@@ -164,10 +148,13 @@ class DetectorDistraccion:
             self.tiempo_distraido = None
             self.distraido        = False
 
-        frame = dibujar_puntos(frame, landmarks, ancho, alto)
-        frame = mostrar_info(
-            frame, offset_x, offset_y, direccion, self.distraido
-        )
+        if dibujar:
+            frame = dibujar_puntos(frame, landmarks, ancho, alto)
+            frame = mostrar_info(
+                frame, offset_x, offset_y, direccion, self.distraido
+            )
+        else:
+            frame = dibujar_puntos(frame, landmarks, ancho, alto)
 
         return frame, self.distraido, direccion
 

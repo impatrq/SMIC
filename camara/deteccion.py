@@ -1,10 +1,3 @@
-# ============================================================
-# SMIC - Sistema de Monitoreo Inteligente del Conductor
-# Archivo: camara/deteccion.py
-# Descripcion: Deteccion de rostro en tiempo real con OpenCV
-# Autor: Reyes, Joaquin
-# ============================================================
-
 import cv2
 
 # --- CONSTANTES ---

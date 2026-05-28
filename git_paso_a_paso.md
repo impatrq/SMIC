@@ -5,6 +5,9 @@
 1. Activar entorno virtual:
    venv\Scripts\activate
 
+   1.1 si da error
+   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
 2. Actualizar main:
    git checkout main
    git pull origin main
@@ -17,14 +20,17 @@
 
 ## Al terminar de trabajar
 
-5. Ver cambios:
+5. Agregar pdf:
+    Copy-Item "C:\Users\pulid\Documents\GitHub\SMIC\docs\*.pdf" "C:\Users\pulid\Documents\GitHub\SMIC\SMIC\docs\"
+
+6. Ver cambios:
    git status
 
-6. Agregar cambios:
+7. Agregar cambios:
    git add .
 
-7. Hacer commit:
+8. Hacer commit:
    git commit -m "descripcion de lo que hiciste"
 
-8. Subir a GitHub:
+9. Subir a GitHub:
    git push origin nombre-de-tu-rama
