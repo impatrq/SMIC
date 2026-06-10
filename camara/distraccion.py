@@ -1,8 +1,12 @@
 import cv2
+import numpy as np
 import mediapipe as mp
 import time
+from picamera2 import Picamera2
 
 # --- CONSTANTES ---
+RESOLUCION_ANCHO   = 640
+RESOLUCION_ALTO    = 480
 UMBRAL_HORIZONTAL  = 0.15
 UMBRAL_VERTICAL    = 0.12
 SEGUNDOS_ALERTA    = 2.0
@@ -18,6 +22,34 @@ MEJILLA_DER  = 454
 
 
 # --- FUNCIONES ---
+def iniciar_camara():
+    """
+    Inicializa la Raspberry Pi Camera Module usando Picamera2.
+    Configura resolucion y formato BGR para OpenCV.
+    Devuelve el objeto Picamera2 o None si falla.
+    """
+    try:
+        camara = Picamera2()
+        config = camara.create_preview_configuration(
+            main={
+                "format": "BGR888",
+                "size": (RESOLUCION_ANCHO, RESOLUCION_ALTO)
+            }
+        )
+        camara.configure(config)
+        camara.start()
+        print("Camara Raspberry Pi iniciada correctamente")
+        return camara
+    except Exception as e:
+        print(f"Error al iniciar camara: {e}")
+        return None
+
+
+def capturar_frame(camara):
+    """Captura y devuelve un frame BGR desde la Picamera2."""
+    return camara.capture_array()
+
+
 def obtener_punto(landmark, indice, ancho, alto):
     """Devuelve las coordenadas de un punto en pixeles."""
     lm = landmark[indice]
@@ -119,8 +151,9 @@ class DetectorDistraccion:
         Devuelve (frame_anotado, esta_distraido, direccion).
         """
         alto, ancho = frame.shape[:2]
-        rgb         = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        resultado   = self.face_mesh.process(rgb)
+        # Picamera2 ya entrega BGR; convertimos a RGB para MediaPipe
+        rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        resultado = self.face_mesh.process(rgb)
 
         if not resultado.multi_face_landmarks:
             self.tiempo_distraido = None
@@ -166,25 +199,25 @@ if __name__ == "__main__":
     print("  Presiona Q para salir")
     print("=" * 45)
 
-    camara   = cv2.VideoCapture(0)
+    camara   = iniciar_camara()
     detector = DetectorDistraccion()
     alertas  = 0
 
-    while True:
-        ret, frame = camara.read()
-        if not ret:
-            break
+    if camara is None:
+        print("No se pudo iniciar la camara")
+    else:
+        while True:
+            frame = capturar_frame(camara)
+            frame, distraido, direccion = detector.analizar(frame)
 
-        frame, distraido, direccion = detector.analizar(frame)
+            if distraido:
+                alertas += 1
+                print(f"ALERTA #{alertas}: {direccion}")
 
-        if distraido:
-            alertas += 1
-            print(f"ALERTA #{alertas}: {direccion}")
+            cv2.imshow("SMIC - Distraccion", frame)
 
-        cv2.imshow("SMIC - Distraccion", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    camara.release()
-    cv2.destroyAllWindows()
+        camara.stop()
+        cv2.destroyAllWindows()
