@@ -1,7 +1,8 @@
 import cv2
+import numpy as np
+from picamera2 import Picamera2
 
 # --- CONSTANTES ---
-CAMARA_INDEX      = 0
 RESOLUCION_ANCHO  = 640
 RESOLUCION_ALTO   = 480
 COLOR_VERDE       = (0, 255, 0)
@@ -10,21 +11,30 @@ GROSOR            = 2
 
 
 # --- FUNCIONES ---
-def iniciar_camara(index=CAMARA_INDEX):
+def iniciar_camara():
     """
-    Abre la camara y configura la resolucion.
-    Devuelve el objeto camara o None si falla.
+    Inicializa la Raspberry Pi Camera Module usando Picamera2.
+    Configura la resolucion y el formato BGR para OpenCV.
+    Devuelve el objeto Picamera2 listo para usar, o None si falla.
     """
-    camara = cv2.VideoCapture(index)
+    try:
+        camara = Picamera2()
 
-    if not camara.isOpened():
-        print("Error: no se pudo abrir la camara")
+        config = camara.create_preview_configuration(
+            main={
+                "format": "BGR888",
+                "size": (RESOLUCION_ANCHO, RESOLUCION_ALTO)
+            }
+        )
+        camara.configure(config)
+        camara.start()
+
+        print("Camara Raspberry Pi iniciada correctamente")
+        return camara
+
+    except Exception as e:
+        print(f"Error: no se pudo abrir la camara -> {e}")
         return None
-
-    camara.set(cv2.CAP_PROP_FRAME_WIDTH,  RESOLUCION_ANCHO)
-    camara.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION_ALTO)
-    print("Camara iniciada correctamente")
-    return camara
 
 
 def cargar_detector():
@@ -37,6 +47,16 @@ def cargar_detector():
     )
     print("Detector de rostros cargado")
     return detector
+
+
+def capturar_frame(camara):
+    """
+    Captura un frame desde la Picamera2.
+    Devuelve el frame como array numpy en formato BGR (compatible con OpenCV).
+    """
+    frame = camara.capture_array()
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    return frame
 
 
 def detectar_rostro(frame, detector):
@@ -103,8 +123,8 @@ def mostrar_estado(frame, hay_rostro):
 
 
 def cerrar_camara(camara):
-    """Libera la camara y cierra todas las ventanas."""
-    camara.release()
+    """Detiene la Picamera2 y cierra todas las ventanas de OpenCV."""
+    camara.stop()
     cv2.destroyAllWindows()
     print("Camara cerrada correctamente")
 
@@ -123,19 +143,13 @@ if __name__ == "__main__":
         print("No se pudo iniciar el sistema")
     else:
         while True:
-            ret, frame = camara.read()
-
-            if not ret:
-                print("Error leyendo la camara")
-                break
+            frame = capturar_frame(camara)
 
             rostros, gris = detectar_rostro(frame, detector)
             hay_rostro    = len(rostros) > 0
 
             frame = dibujar_rostros(frame, rostros)
             frame = mostrar_estado(frame, hay_rostro)
-
-            cv2.imshow("SMIC - Camara conductor", frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
