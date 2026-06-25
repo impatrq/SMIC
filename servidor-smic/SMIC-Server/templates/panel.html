@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="15">
+  <!-- auto-refresh manejado por JS -->
   <title>SMIC — Panel de Control</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
@@ -45,7 +45,7 @@
     }
     .btn-sync:hover { background: rgba(31,111,235,.25); }
     .btn-sync:disabled { opacity: .5; cursor: not-allowed; }
-    .btn-sync .sync-icon { font-size: 14px; }
+    .deteccion-card video { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #000; }
 
     /* ── LAYOUT ── */
     .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
@@ -138,7 +138,7 @@
   </div>
   <div class="header-right">
     <button class="btn-sync" id="btnSync" onclick="sincronizarClips()">
-      <span class="sync-icon">&#x21BB;</span> Actualizar clips
+      <span>&#x21BB;</span> Actualizar clips
     </button>
     <span class="live">EN VIVO &mdash; actualiza cada 15 s</span>
   </div>
@@ -278,8 +278,15 @@
       <div class="detecciones-grid">
         {% for d in ultimas_detecciones %}
         <div class="deteccion-card">
-          {% if d.imagen_path %}
-            <img src="{{ url_for('static', filename=d.imagen_path) }}" alt="{{ d.etiqueta }}">
+          {% if d.imagen_path and d.imagen_path.endswith('.mp4') %}
+            <video controls preload="metadata">
+              <source src="{{ url_for('static', filename=d.imagen_path) }}" type="video/mp4">
+            </video>
+          {% elif d.imagen_path and not d.imagen_path.endswith('.mp4') %}
+            <div class="det-placeholder" style="font-size:13px;padding:8px">
+              &#x1F3AC; {{ d.etiqueta }}<br>
+              <a href="{{ url_for('static', filename=d.imagen_path) }}" style="color:#58a6ff;font-size:11px" download>Descargar clip</a>
+            </div>
           {% else %}
             <div class="det-placeholder">&#x1F4F7;</div>
           {% endif %}
@@ -336,30 +343,43 @@
 {% endif %}
 
 <script>
+  // Auto-refresh que se pausa si hay un video reproduciéndose
+  let refreshTimer;
+  function iniciarRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      const videos = document.querySelectorAll("video");
+      const hayVideoActivo = Array.from(videos).some(v => !v.paused && !v.ended);
+      if (hayVideoActivo) {
+        iniciarRefresh();
+      } else {
+        location.reload();
+      }
+    }, 15000);
+  }
+  iniciarRefresh();
+
   function sincronizarClips() {
     const btn = document.getElementById('btnSync');
     btn.disabled = true;
-    btn.innerHTML = '<span class="sync-icon">&#x231B;</span> Sincronizando...';
+    btn.innerHTML = '<span>&#x231B;</span> Sincronizando...';
     fetch('/api/sync', { method: 'POST' })
       .then(r => r.json())
       .then(d => {
-        btn.innerHTML = d.ok
-          ? '<span class="sync-icon">&#x2713;</span> Sincronizado'
-          : '<span class="sync-icon">&#x26A0;</span> Error';
+        btn.innerHTML = d.ok ? '<span>&#x2713;</span> Sincronizado' : '<span>&#x26A0;</span> Error';
         setTimeout(() => {
           btn.disabled = false;
-          btn.innerHTML = '<span class="sync-icon">&#x21BB;</span> Actualizar clips';
+          btn.innerHTML = '<span>&#x21BB;</span> Actualizar clips';
         }, 3000);
       })
       .catch(() => {
-        btn.innerHTML = '<span class="sync-icon">&#x26A0;</span> Error de red';
+        btn.innerHTML = '<span>&#x26A0;</span> Error de red';
         setTimeout(() => {
           btn.disabled = false;
-          btn.innerHTML = '<span class="sync-icon">&#x21BB;</span> Actualizar clips';
+          btn.innerHTML = '<span>&#x21BB;</span> Actualizar clips';
         }, 3000);
       });
   }
 </script>
-
 </body>
 </html>
