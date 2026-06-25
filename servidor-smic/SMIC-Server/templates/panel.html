@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="15">
+  <title>SMIC — Panel de Control</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #238636;
+      --blue: #1f6feb;
+      --red: #da3633;
+      --yellow: #d29922;
+      --purple: #8957e5;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; }
+
+    /* ── TOPBAR ── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: 2px; color: #fff; }
+    header .live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    header .live::before { content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+    /* ── LAYOUT ── */
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+    .grid-3 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 20px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* ── CARDS ── */
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+    }
+    .card-title {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── STAT CARDS ── */
+    .stat-card { text-align: center; }
+    .stat-value { font-size: 36px; font-weight: 700; line-height: 1; }
+    .stat-label { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .stat-card.alert .stat-value { color: var(--red); }
+    .stat-card.ok .stat-value { color: var(--accent); }
+    .stat-card.info .stat-value { color: var(--blue); }
+    .stat-card.warn .stat-value { color: var(--yellow); }
+
+    /* ── MAPA ── */
+    #mapa { height: 320px; border-radius: 6px; }
+
+    /* ── GPS INFO ── */
+    .gps-coords { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .gps-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .gps-meta-item { background: var(--bg); border-radius: 6px; padding: 8px 12px; }
+    .gps-meta-item .label { font-size: 11px; color: var(--muted); }
+    .gps-meta-item .value { font-size: 16px; font-weight: 600; }
+
+    /* ── TABLA ── */
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.03); }
+
+    /* ── BADGES ── */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-ok { background: rgba(35,134,54,.2); color: #3fb950; }
+    .badge-alert { background: rgba(218,54,51,.2); color: #f85149; }
+    .badge-warn { background: rgba(210,153,34,.2); color: #e3b341; }
+    .badge-info { background: rgba(31,111,235,.2); color: #58a6ff; }
+    .badge-error { background: rgba(218,54,51,.2); color: #f85149; }
+    .badge-critico { background: rgba(139,71,229,.2); color: #a5a5ff; }
+
+    /* ── DETECCIONES CÁMARA ── */
+    .detecciones-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .deteccion-card {
+      background: var(--bg); border-radius: 6px; overflow: hidden; border: 1px solid var(--border);
+    }
+    .deteccion-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
+    .deteccion-card .det-info { padding: 8px; }
+    .deteccion-card .det-label { font-weight: 600; font-size: 13px; }
+    .deteccion-card .det-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .det-placeholder { width: 100%; aspect-ratio: 16/9; background: var(--border); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 24px; }
+
+    /* ── LOGS ── */
+    .log-entry { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+    .log-entry:last-child { border-bottom: none; }
+    .log-time { color: var(--muted); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .log-msg { flex: 1; font-size: 13px; }
+
+    /* ── NO DATA ── */
+    .no-data { text-align: center; padding: 24px; color: var(--muted); }
+
+    @media (max-width: 900px) {
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .grid-3 { grid-template-columns: 1fr; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .detecciones-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 500px) {
+      .grid-4 { grid-template-columns: 1fr; }
+      .detecciones-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>SMIC</h1>
+  <span class="live">EN VIVO &mdash; actualiza cada 15 s</span>
+</header>
+
+<div class="container">
+
+  <!-- ── RESUMEN ── -->
+  <div class="grid-4">
+    <div class="card stat-card info">
+      <div class="stat-value">{{ resumen.total_gps }}</div>
+      <div class="stat-label">Posiciones GPS</div>
+    </div>
+    <div class="card stat-card ok">
+      <div class="stat-value">{{ resumen.total_sensores }}</div>
+      <div class="stat-label">Lecturas ESP32</div>
+    </div>
+    <div class="card stat-card {% if resumen.alertas_activas > 0 %}alert{% else %}ok{% endif %}">
+      <div class="stat-value">{{ resumen.alertas_activas }}</div>
+      <div class="stat-label">Alertas activas</div>
+    </div>
+    <div class="card stat-card {% if resumen.errores_sistema > 0 %}warn{% else %}ok{% endif %}">
+      <div class="stat-value">{{ resumen.errores_sistema }}</div>
+      <div class="stat-label">Errores sistema</div>
+    </div>
+  </div>
+
+  <!-- ── GPS + MAPA ── -->
+  <div class="grid-3" style="margin-bottom:20px">
+    <div class="card">
+      <div class="card-title">&#x1F5FA; Mapa &mdash; última posición GPS</div>
+      {% if ultimo_gps %}
+        <div id="mapa"></div>
+      {% else %}
+        <div class="no-data" style="height:320px;display:flex;align-items:center;justify-content:center">Sin datos GPS</div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="card-title">&#x1F4CD; Coordenadas actuales</div>
+      {% if ultimo_gps %}
+        <div class="gps-coords">
+          {{ "%.6f"|format(ultimo_gps.latitud) }}<br>
+          {{ "%.6f"|format(ultimo_gps.longitud) }}
+        </div>
+        <div class="gps-meta">
+          <div class="gps-meta-item">
+            <div class="label">Altitud</div>
+            <div class="value">{{ ultimo_gps.altitud|default("—") }} m</div>
+          </div>
+          <div class="gps-meta-item">
+            <div class="label">Velocidad</div>
+            <div class="value">{{ ultimo_gps.velocidad|default("—") }} km/h</div>
+          </div>
+          <div class="gps-meta-item">
+            <div class="label">Satélites</div>
+            <div class="value">{{ ultimo_gps.satelites|default("—") }}</div>
+          </div>
+          <div class="gps-meta-item">
+            <div class="label">Precisión</div>
+            <div class="value">{{ ultimo_gps.precision|default("—") }} m</div>
+          </div>
+        </div>
+        <p style="margin-top:12px;font-size:11px;color:var(--muted)">
+          Actualizado: {{ ultimo_gps.timestamp.strftime("%d/%m/%Y %H:%M:%S") }}
+        </p>
+      {% else %}
+        <div class="no-data">Sin datos GPS recibidos</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── SENSORES + ALERTAS ── -->
+  <div class="grid-2" style="margin-bottom:20px">
+    <div class="card">
+      <div class="card-title">&#x26A1; Últimas lecturas ESP32</div>
+      {% if ultimos_sensores %}
+        <table>
+          <thead>
+            <tr>
+              <th>Dispositivo</th>
+              <th>Tipo</th>
+              <th>Valor</th>
+              <th>Hora</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in ultimos_sensores %}
+            <tr>
+              <td>{{ s.dispositivo }}</td>
+              <td>{{ s.tipo }}</td>
+              <td>{{ s.valor }} {{ s.unidad }}</td>
+              <td style="color:var(--muted);font-size:12px">{{ s.timestamp.strftime("%H:%M:%S") }}</td>
+              <td>
+                {% if s.alerta %}
+                  <span class="badge badge-alert">ALERTA</span>
+                {% else %}
+                  <span class="badge badge-ok">OK</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="no-data">Sin lecturas de sensores</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="card-title">&#x26A0; Alertas recientes</div>
+      {% if alertas %}
+        <table>
+          <thead>
+            <tr><th>Dispositivo</th><th>Mensaje</th><th>Hora</th></tr>
+          </thead>
+          <tbody>
+            {% for a in alertas %}
+            <tr>
+              <td><span class="badge badge-alert">{{ a.dispositivo }}</span></td>
+              <td>{{ a.mensaje or a.tipo }}</td>
+              <td style="color:var(--muted);font-size:12px">{{ a.timestamp.strftime("%H:%M:%S") }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="no-data" style="color:#3fb950">Sin alertas activas</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── CÁMARA ── -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">&#x1F4F7; Detecciones de cámara</div>
+    {% if ultimas_detecciones %}
+      <div class="detecciones-grid">
+        {% for d in ultimas_detecciones %}
+        <div class="deteccion-card">
+          {% if d.imagen_path %}
+            <img src="{{ url_for('static', filename=d.imagen_path) }}" alt="{{ d.etiqueta }}">
+          {% else %}
+            <div class="det-placeholder">&#x1F4F7;</div>
+          {% endif %}
+          <div class="det-info">
+            <div class="det-label">
+              {{ d.etiqueta or d.tipo }}
+              {% if d.confianza %}<span style="color:var(--muted);font-size:11px"> {{ "%.0f"|format(d.confianza * 100) }}%</span>{% endif %}
+            </div>
+            <div class="det-meta">{{ d.timestamp.strftime("%d/%m %H:%M:%S") }} &mdash; {{ d.tipo }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="no-data">Sin detecciones registradas</div>
+    {% endif %}
+  </div>
+
+  <!-- ── LOGS SISTEMA ── -->
+  <div class="card">
+    <div class="card-title">&#x1F4BB; Log del sistema</div>
+    {% if ultimos_logs %}
+      {% for log in ultimos_logs %}
+      <div class="log-entry">
+        <span class="log-time">{{ log.timestamp.strftime("%H:%M:%S") }}</span>
+        <span class="badge badge-{{ log.nivel }}">{{ log.nivel.upper() }}</span>
+        <span style="color:var(--muted);font-size:11px">{{ log.fuente }}</span>
+        <span class="log-msg">{{ log.mensaje }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="no-data">Sin logs del sistema</div>
+    {% endif %}
+  </div>
+
+</div><!-- /container -->
+
+<!-- ── MAPA LEAFLET ── -->
+{% if ultimo_gps %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const lat = {{ ultimo_gps.latitud }};
+  const lon = {{ ultimo_gps.longitud }};
+  const map = L.map("mapa").setView([lat, lon], 15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+  }).addTo(map);
+  L.marker([lat, lon])
+    .addTo(map)
+    .bindPopup(`<b>SMIC</b><br>${lat.toFixed(6)}, ${lon.toFixed(6)}`)
+    .openPopup();
+</script>
+{% endif %}
+
+</body>
+</html>

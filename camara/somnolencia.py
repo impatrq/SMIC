@@ -4,6 +4,16 @@ import mediapipe as mp
 import time
 from math import dist
 from picamera2 import Picamera2
+import threading
+import requests
+
+SERVER = "http://192.168.137.1:5000"
+
+def _post(url, datos):
+    try:
+        requests.post(url, json=datos, timeout=2)
+    except Exception as e:
+        print(f"[SERVER] Error: {e}")
 
 # --- CONSTANTES ---
 RESOLUCION_ANCHO  = 640
@@ -121,6 +131,15 @@ class DetectorSomnolencia:
                 tiempo_cerrado = time.time() - self.tiempo_ojos_cerrados
                 if tiempo_cerrado >= SEGUNDOS_ALERTA:
                     self.dormido = True
+                    payload = {
+                        "tipo": "somnolencia",
+                        "confianza": round(1.0 - ear_avg, 2),
+                        "etiqueta": "conductor",
+                        "resolucion": "640x480",
+                        "descripcion": f"EAR: {ear_avg:.3f} — ojos cerrados {tiempo_cerrado:.1f}s"
+                    }
+                    threading.Thread(target=_post, args=(f"{SERVER}/api/camara", payload), daemon=True).start()
+
         else:
             self.tiempo_ojos_cerrados = None
             self.dormido              = False
@@ -154,10 +173,7 @@ if __name__ == "__main__":
                 alertas += 1
                 print(f"ALERTA #{alertas}: Somnolencia detectada")
 
-            cv2.imshow("SMIC - Somnolencia", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+            pass  # sin display
 
         camara.stop()
         cv2.destroyAllWindows()
