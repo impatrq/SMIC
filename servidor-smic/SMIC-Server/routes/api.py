@@ -186,3 +186,35 @@ def resumen():
         "sistema": EventoSistema.query.count(),
         "errores": EventoSistema.query.filter_by(nivel="error").count(),
     })
+
+
+# ── SINCRONIZACIÓN DE CLIPS ───────────────────────────────────────────────────
+
+@api_bp.route("/sync", methods=["POST"])
+def sync_clips():
+    import subprocess
+
+    clips_destino = os.path.join(os.path.expanduser("~"), "Desktop", "SMIC_clips")
+    os.makedirs(clips_destino, exist_ok=True)
+
+    try:
+        resultado = subprocess.run(
+            [
+                "scp", "-r",
+                "proyecto-smic@SMIC.local:/home/proyecto-smic/SMIC/eventos/.",
+                clips_destino
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if resultado.returncode == 0:
+            return jsonify({"ok": True, "mensaje": "Clips sincronizados correctamente"}), 200
+        else:
+            return jsonify({"ok": False, "mensaje": resultado.stderr}), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "mensaje": "Tiempo de espera agotado"}), 504
+    except Exception as e:
+        return jsonify({"ok": False, "mensaje": str(e)}), 500

@@ -30,10 +30,22 @@
       padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
       position: sticky; top: 0; z-index: 100;
     }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .header-logo { height: 36px; width: auto; }
     header h1 { font-size: 18px; font-weight: 700; letter-spacing: 2px; color: #fff; }
     header .live { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
     header .live::before { content: ''; display: block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .btn-sync {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(31,111,235,.15); border: 1px solid rgba(31,111,235,.4);
+      color: #58a6ff; font-size: 12px; font-weight: 600; padding: 6px 14px;
+      border-radius: 6px; cursor: pointer; transition: background .2s;
+    }
+    .btn-sync:hover { background: rgba(31,111,235,.25); }
+    .btn-sync:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-sync .sync-icon { font-size: 14px; }
 
     /* ── LAYOUT ── */
     .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
@@ -120,8 +132,16 @@
 <body>
 
 <header>
-  <h1>SMIC</h1>
-  <span class="live">EN VIVO &mdash; actualiza cada 15 s</span>
+  <div class="header-left">
+    <img src="{{ url_for('static', filename='smic_logo.png') }}" alt="SMIC Logo" class="header-logo">
+    <h1>SMIC</h1>
+  </div>
+  <div class="header-right">
+    <button class="btn-sync" id="btnSync" onclick="sincronizarClips()">
+      <span class="sync-icon">&#x21BB;</span> Actualizar clips
+    </button>
+    <span class="live">EN VIVO &mdash; actualiza cada 15 s</span>
+  </div>
 </header>
 
 <div class="container">
@@ -314,6 +334,32 @@
     .openPopup();
 </script>
 {% endif %}
+
+<script>
+  function sincronizarClips() {
+    const btn = document.getElementById('btnSync');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="sync-icon">&#x231B;</span> Sincronizando...';
+    fetch('/api/sync', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        btn.innerHTML = d.ok
+          ? '<span class="sync-icon">&#x2713;</span> Sincronizado'
+          : '<span class="sync-icon">&#x26A0;</span> Error';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.innerHTML = '<span class="sync-icon">&#x21BB;</span> Actualizar clips';
+        }, 3000);
+      })
+      .catch(() => {
+        btn.innerHTML = '<span class="sync-icon">&#x26A0;</span> Error de red';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.innerHTML = '<span class="sync-icon">&#x21BB;</span> Actualizar clips';
+        }, 3000);
+      });
+  }
+</script>
 
 </body>
 </html>
