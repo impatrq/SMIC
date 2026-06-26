@@ -188,6 +188,73 @@ def resumen():
     })
 
 
+# ── VIDEO ─────────────────────────────────────────────────────────────────────
+
+VIDEOS_DIR = os.path.join(os.path.dirname(__file__), "..", "static", "videos")
+os.makedirs(VIDEOS_DIR, exist_ok=True)
+
+FFMPEG = r"C:\Users\fnmov\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe"
+
+@api_bp.route("/video", methods=["POST"])
+def recibir_video():
+    import subprocess
+
+    if "video" not in request.files:
+        return jsonify({"error": "archivo video requerido"}), 400
+
+    archivo = request.files["video"]
+    tipo    = request.form.get("tipo", "evento")
+    desc    = request.form.get("descripcion", "")
+
+    # Guardar .avi temporal
+    ts         = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    nombre_avi = f"{ts}_{archivo.filename}"
+    ruta_avi   = os.path.join(VIDEOS_DIR, nombre_avi)
+    archivo.save(ruta_avi)
+
+    # Convertir a .mp4
+    nombre_mp4 = nombre_avi.replace(".avi", ".mp4")
+    ruta_mp4   = os.path.join(VIDEOS_DIR, nombre_mp4)
+
+    try:
+        subprocess.run(
+            [FFMPEG, "-i", ruta_avi, "-c:v", "libx264", "-preset", "fast",
+             "-crf", "28", "-c:a", "aac", "-y", ruta_mp4],
+            capture_output=True, timeout=120, check=True
+        )
+        os.remove(ruta_avi)
+        ruta_final   = f"videos/{nombre_mp4}"
+        nombre_final = nombre_mp4
+    except Exception as e:
+        print(f"[VIDEO] ffmpeg falló: {e}")
+        ruta_final   = f"videos/{nombre_avi}"
+        nombre_final = nombre_avi
+
+    evento = EventoCamara(
+        tipo=tipo,
+        etiqueta=archivo.filename,
+        imagen_path=ruta_final,
+        descripcion=desc,
+    )
+    db.session.add(evento)
+    db.session.commit()
+
+    return jsonify({"ok": True, "id": evento.id, "archivo": nombre_final}), 201
+
+
+@api_bp.route("/video", methods=["GET"])
+def listar_videos():
+    limit = min(int(request.args.get("limit", 20)), 100)
+    tipo  = request.args.get("tipo")
+
+    query = EventoCamara.query.filter(EventoCamara.imagen_path.like("videos/%"))
+    if tipo:
+        query = query.filter_by(tipo=tipo)
+
+    eventos = query.order_by(EventoCamara.timestamp.desc()).limit(limit).all()
+    return jsonify([e.to_dict() for e in eventos])
+
+
 # ── SINCRONIZACIÓN DE CLIPS ───────────────────────────────────────────────────
 
 @api_bp.route("/sync", methods=["POST"])
