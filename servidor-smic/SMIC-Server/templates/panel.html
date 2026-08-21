@@ -294,6 +294,11 @@
             <div class="det-label">
               {{ d.etiqueta or d.tipo }}
               {% if d.confianza %}<span style="color:var(--muted);font-size:11px"> {{ "%.0f"|format(d.confianza * 100) }}%</span>{% endif %}
+              {% if d.fuente == 'dashcam' %}
+                <span class="badge badge-info" style="margin-left:6px">DASHCAM</span>
+              {% elif d.fuente == 'conductor' %}
+                <span class="badge badge-warn" style="margin-left:6px">CONDUCTOR</span>
+              {% endif %}
             </div>
             <div class="det-meta">{{ d.timestamp.strftime("%d/%m %H:%M:%S") }} &mdash; {{ d.tipo }}</div>
           </div>
