@@ -9,6 +9,33 @@ CARPETA_CLIPS = os.path.expanduser("~/SMIC/eventos")
 MAX_CLIPS     = 50
 INTERVALO     = 30  # segundos entre intentos de sincronización
 
+# Extensiones de clip que maneja el sistema, con el content-type
+# correcto para cada una (la dashcam guarda .mp4, la camara del
+# conductor guarda .avi -- ver dashcam.py y monitor.py).
+CONTENT_TYPE_POR_EXTENSION = {
+    ".avi": "video/x-msvideo",
+    ".mp4": "video/mp4",
+}
+
+
+def es_clip(nombre_archivo):
+    """True si el archivo es un clip de video que el sincronizador
+    debe manejar (de cualquiera de las 2 camaras)."""
+    return os.path.splitext(nombre_archivo)[1].lower() in CONTENT_TYPE_POR_EXTENSION
+
+
+def listar_clips():
+    """Lista todos los clips pendientes en la carpeta de eventos,
+    de ambas camaras (antes solo se listaban los .avi de la camara
+    del conductor -- los .mp4 de la dashcam quedaban afuera y nunca
+    se subian ni se limpiaban)."""
+    return sorted([
+        os.path.join(CARPETA_CLIPS, f)
+        for f in os.listdir(CARPETA_CLIPS)
+        if es_clip(f)
+    ])
+
+
 def hay_conexion():
     """Verifica si el servidor está accesible."""
     try:
@@ -17,26 +44,59 @@ def hay_conexion():
     except:
         return False
 
+
+def _info_clip(ruta_clip):
+    """
+    Deduce fuente/tipo/timestamp a partir del nombre del archivo.
+
+    Nombres esperados (ver monitor.py y dashcam.py):
+      - Camara del conductor: "{TIPO}_{timestamp}.avi"
+        p.ej. "SOMNOLENCIA_20260714_162938.avi"
+      - Dashcam:               "dashcam_{TIPO}_{timestamp}.mp4"
+        p.ej. "dashcam_SOMNOLENCIA_20260714_162927.mp4"
+
+    Devuelve (fuente, tipo, timestamp, content_type).
+    """
+    nombre     = os.path.basename(ruta_clip)
+    base, ext  = os.path.splitext(nombre)
+    ext        = ext.lower()
+
+    if base.lower().startswith("dashcam_"):
+        fuente = "dashcam"
+        base   = base[len("dashcam_"):]
+    else:
+        fuente = "conductor"
+
+    partes    = base.split("_")
+    tipo      = partes[0].lower()
+    timestamp = "_".join(partes[1:])
+
+    content_type = CONTENT_TYPE_POR_EXTENSION.get(ext, "application/octet-stream")
+
+    return fuente, tipo, timestamp, content_type
+
+
 def enviar_clip(ruta_clip):
-    """Envía un clip al servidor. Devuelve True si fue exitoso."""
+    """Envía un clip al servidor (de cualquiera de las 2 camaras).
+    Devuelve True si fue exitoso."""
+    nombre = os.path.basename(ruta_clip)
     try:
-        nombre    = os.path.basename(ruta_clip)
-        tipo      = nombre.split("_")[0].lower()  # somnolencia o distraccion
-        timestamp = "_".join(nombre.split("_")[1:]).replace(".avi", "")
+        fuente, tipo, timestamp, content_type = _info_clip(ruta_clip)
 
         with open(ruta_clip, "rb") as f:
             r = requests.post(
                 f"{SERVER}/api/video",
-                files={"video": (nombre, f, "video/x-msvideo")},
+                files={"video": (nombre, f, content_type)},
                 data={
                     "tipo":        tipo,
-                    "descripcion": f"Clip {tipo} — {timestamp}"
+                    "fuente":      fuente,
+                    "descripcion": f"Clip {tipo} ({fuente}) — {timestamp}"
                 },
                 timeout=60
             )
 
         if r.status_code == 201:
-            print(f"[SYNC] Enviado: {nombre}")
+            print(f"[SYNC] Enviado: {nombre} (fuente={fuente})")
             return True
         else:
             print(f"[SYNC] Error servidor: {r.status_code}")
@@ -46,28 +106,23 @@ def enviar_clip(ruta_clip):
         print(f"[SYNC] Error enviando {nombre}: {e}")
         return False
 
+
 def limpiar_clips_viejos():
-    """Si hay más de MAX_CLIPS, borra los más antiguos."""
-    clips = sorted([
-        os.path.join(CARPETA_CLIPS, f)
-        for f in os.listdir(CARPETA_CLIPS)
-        if f.endswith(".avi")
-    ])
+    """Si hay más de MAX_CLIPS (contando las 2 camaras juntas), borra
+    los más antiguos."""
+    clips = listar_clips()
 
     while len(clips) > MAX_CLIPS:
         clip_viejo = clips.pop(0)
         os.remove(clip_viejo)
         print(f"[SYNC] Borrado por límite: {os.path.basename(clip_viejo)}")
 
+
 def sincronizar():
-    """Intenta enviar todos los clips pendientes."""
+    """Intenta enviar todos los clips pendientes de ambas camaras."""
     os.makedirs(CARPETA_CLIPS, exist_ok=True)
 
-    clips = sorted([
-        os.path.join(CARPETA_CLIPS, f)
-        for f in os.listdir(CARPETA_CLIPS)
-        if f.endswith(".avi")
-    ])
+    clips = listar_clips()
 
     if not clips:
         return
@@ -86,6 +141,7 @@ def sincronizar():
         else:
             print(f"[SYNC] Reintentará después: {os.path.basename(clip)}")
 
+
 def bucle_sincronizacion():
     """Corre en segundo plano, sincroniza cada INTERVALO segundos."""
     print(f"[SYNC] Sincronizador iniciado — revisa cada {INTERVALO}s")
@@ -96,11 +152,13 @@ def bucle_sincronizacion():
             print(f"[SYNC] Error inesperado: {e}")
         time.sleep(INTERVALO)
 
+
 def iniciar_sincronizador():
     """Inicia el sincronizador en un hilo de fondo."""
     hilo = threading.Thread(target=bucle_sincronizacion, daemon=True)
     hilo.start()
     return hilo
+
 
 if __name__ == "__main__":
     print("=" * 45)
