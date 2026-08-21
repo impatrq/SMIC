@@ -47,6 +47,16 @@ SEGUNDOS_POST_EVENTO = 10
 # Misma carpeta que usa el resto del sistema para guardar clips
 CARPETA_EVENTOS = os.path.expanduser("~/SMIC/eventos")
 
+# Subcarpeta oculta donde se escriben los clips MIENTRAS se estan
+# grabando. sensores/sincronizador.py solo mira los archivos directos
+# de CARPETA_EVENTOS (no entra a subcarpetas), asi que nunca ve un
+# clip a medio escribir -- recien aparece con os.replace() cuando ya
+# esta completo. Se usa una subcarpeta en vez de, por ejemplo, un
+# sufijo ".tmp" en el nombre, porque cv2.VideoWriter elige el
+# codec/contenedor segun la extension final del archivo: un nombre
+# como "clip.mp4.tmp" hace que ni siquiera pueda abrir el archivo.
+CARPETA_TEMPORAL = os.path.join(CARPETA_EVENTOS, ".en_progreso")
+
 
 def _abrir_camara_dashcam(indices_candidatos):
     """
@@ -114,6 +124,7 @@ class Dashcam:
         self.activo = True
 
         os.makedirs(CARPETA_EVENTOS, exist_ok=True)
+        os.makedirs(CARPETA_TEMPORAL, exist_ok=True)
 
         # Hilo que llena el buffer sin parar, en paralelo a todo lo demas
         self.hilo_captura = threading.Thread(target=self._capturar_loop, daemon=True)
@@ -154,6 +165,18 @@ class Dashcam:
         nombre_archivo = f"dashcam_{tipo_evento}_{timestamp}.mp4"
         ruta = os.path.join(CARPETA_EVENTOS, nombre_archivo)
 
+        # Se escribe primero en CARPETA_TEMPORAL y recien se mueve a
+        # CARPETA_EVENTOS (su nombre final) cuando el archivo ya esta
+        # completo. cv2.VideoWriter crea el archivo en el disco apenas
+        # arranca, no cuando termina de escribir -- si escribieramos
+        # directo en la carpeta final, sensores/sincronizador.py (que
+        # revisa esa carpeta cada 30s) podria agarrar el archivo a
+        # mitad de escritura, subirlo casi vacio y borrarlo, mucho antes
+        # de que termine de grabar los 10s post-evento. Un os.replace()
+        # es atomico a nivel de sistema de archivos: el sincronizador
+        # nunca puede ver un estado intermedio.
+        ruta_temporal = os.path.join(CARPETA_TEMPORAL, nombre_archivo)
+
         # Copiamos el buffer actual (pre-evento) y anotamos el contador
         # en este instante, para saber a partir de donde son frames nuevos
         with self.lock:
@@ -161,7 +184,7 @@ class Dashcam:
             ultimo_contador = self.contador_frames
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(ruta, fourcc, FPS, (RESOLUCION_ANCHO, RESOLUCION_ALTO))
+        writer = cv2.VideoWriter(ruta_temporal, fourcc, FPS, (RESOLUCION_ANCHO, RESOLUCION_ALTO))
 
         for frame in frames_pre:
             writer.write(frame)
@@ -189,6 +212,11 @@ class Dashcam:
                 time.sleep(0.01)
 
         writer.release()
+
+        # Recien ahora el archivo esta completo -- lo hacemos visible
+        # con su nombre final de un solo paso atomico.
+        os.replace(ruta_temporal, ruta)
+
         print(f"Clip dashcam guardado: {ruta}")
 
     def cerrar(self):

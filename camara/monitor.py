@@ -28,6 +28,13 @@ COOLDOWN_DISTRACCION = 5
 ALTO_PANEL           = 160
 CARPETA_EVENTOS      = os.path.expanduser("~/SMIC/eventos")
 
+# Subcarpeta oculta donde se escriben los clips MIENTRAS se estan
+# grabando. sensores/sincronizador.py solo mira los archivos directos
+# de CARPETA_EVENTOS (no entra a subcarpetas), asi que nunca ve un
+# clip a medio escribir -- recien aparece con os.replace() cuando ya
+# esta completo. Mismo patron que usa dashcam.py.
+CARPETA_TEMPORAL    = os.path.join(CARPETA_EVENTOS, ".en_progreso")
+
 
 # --- FUNCIONES ---
 def iniciar_camara():
@@ -81,6 +88,7 @@ def capturar_frame(camara):
 def crear_carpeta_eventos():
     """Crea la carpeta donde se guardan los clips si no existe."""
     os.makedirs(CARPETA_EVENTOS, exist_ok=True)
+    os.makedirs(CARPETA_TEMPORAL, exist_ok=True)
     print(f"Carpeta de eventos: {CARPETA_EVENTOS}")
 
 
@@ -95,13 +103,29 @@ def guardar_clip(buffer_frames, frames_despues, tipo_evento):
     conductor justo cuando mas importa no perder frames. La dashcam
     (dashcam.py) ya guardaba sus clips en un hilo propio; esto iguala
     el comportamiento para la camara del conductor.
+
+    Se escribe primero en CARPETA_TEMPORAL (una subcarpeta oculta) y
+    se mueve a CARPETA_EVENTOS (su nombre final) recien cuando el
+    archivo esta completo. cv2.VideoWriter crea el archivo en el
+    disco apenas arranca, no cuando termina de escribir -- si
+    escribieramos directo en la carpeta final, sensores/sincronizador.py
+    (que revisa esa carpeta cada 30s) podria agarrar el archivo a
+    mitad de escritura, subirlo casi vacio y borrarlo antes de que
+    termine de grabarse. Un os.replace() es atomico a nivel de sistema
+    de archivos, asi que el sincronizador nunca puede ver un estado
+    intermedio. (No se usa un sufijo ".tmp" en el nombre porque
+    cv2.VideoWriter elige el codec/contenedor segun la extension
+    final del archivo -- "clip.avi.tmp" hace que ni siquiera pueda
+    abrirlo.)
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre    = f"{CARPETA_EVENTOS}/{tipo_evento}_{timestamp}.avi"
+    nombre_archivo  = f"{tipo_evento}_{timestamp}.avi"
+    nombre          = os.path.join(CARPETA_EVENTOS, nombre_archivo)
+    nombre_temporal = os.path.join(CARPETA_TEMPORAL, nombre_archivo)
 
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     writer = cv2.VideoWriter(
-        nombre,
+        nombre_temporal,
         fourcc,
         FPS,
         (RESOLUCION_ANCHO, RESOLUCION_ALTO)
@@ -114,6 +138,9 @@ def guardar_clip(buffer_frames, frames_despues, tipo_evento):
         writer.write(frame)
 
     writer.release()
+
+    os.replace(nombre_temporal, nombre)
+
     print(f"Clip guardado: {nombre}")
     return nombre
 
