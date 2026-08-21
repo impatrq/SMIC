@@ -21,10 +21,18 @@ from datetime import datetime
 
 # ==================== CONFIGURACION ====================
 
-# Indice del dispositivo de video. Confirmado con v4l2-ctl --list-devices:
-# /dev/video1 es "GENERAL WEBCAM" (captura real, tiene formatos MJPG/YUYV).
-# /dev/video2 es el nodo de metadata de la misma camara, no sirve para esto.
-DASHCAM_INDEX = 1
+# La "GENERAL WEBCAM" expone 2 nodos /dev/videoN para la misma camara
+# fisica (uno de captura real, con formatos MJPG/YUYV, y otro que solo
+# sirve metadata). Antes esto estaba fijo en un indice (1), pero el
+# orden en que Linux asigna esos numeros puede cambiar entre reinicios
+# segun el momento en que USB detecta cada nodo -- cuando el orden
+# cambiaba, el indice fijo apuntaba al nodo de metadata, que "abre"
+# sin error pero nunca entrega un frame real, y la dashcam quedaba sin
+# funcionar sin ninguna pista clara de por que.
+#
+# Ahora se prueban estos indices en orden y se usa el primero que
+# realmente entrega un frame al leerlo (no solo el que "abre").
+DASHCAM_INDICES_CANDIDATOS = [1, 0]
 
 RESOLUCION_ANCHO = 640
 RESOLUCION_ALTO = 480
@@ -40,20 +48,54 @@ SEGUNDOS_POST_EVENTO = 10
 CARPETA_EVENTOS = os.path.expanduser("~/SMIC/eventos")
 
 
+def _abrir_camara_dashcam(indices_candidatos):
+    """
+    Prueba abrir la webcam en varios indices posibles y devuelve la
+    primera que realmente puede capturar un frame (no alcanza con que
+    cv2.VideoCapture la "abra": el nodo de metadata tambien abre sin
+    error, pero nunca da un frame util al leerlo).
+
+    Devuelve (camara, indice_usado) o (None, None) si ninguno sirvio.
+    """
+    for idx in indices_candidatos:
+        camara = cv2.VideoCapture(idx)
+
+        if not camara.isOpened():
+            camara.release()
+            continue
+
+        camara.set(cv2.CAP_PROP_FRAME_WIDTH, RESOLUCION_ANCHO)
+        camara.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION_ALTO)
+        camara.set(cv2.CAP_PROP_FPS, FPS)
+
+        ret, frame = camara.read()
+        if ret and frame is not None:
+            print(f"[DASHCAM] Camara encontrada en el indice {idx}")
+            return camara, idx
+
+        camara.release()
+
+    return None, None
+
+
 # ==================== CLASE DASHCAM ====================
 
 class Dashcam:
     """Maneja la webcam delantera con un buffer circular en memoria."""
 
-    def __init__(self, index=DASHCAM_INDEX):
-        self.camara = cv2.VideoCapture(index)
+    def __init__(self, index=None):
+        # Si se pasa un indice explicito, se respeta tal cual (por si
+        # alguna vez hace falta forzar uno puntual). Si no, se prueban
+        # los candidatos conocidos en orden.
+        candidatos = [index] if index is not None else DASHCAM_INDICES_CANDIDATOS
 
-        if not self.camara.isOpened():
-            raise RuntimeError(f"No se pudo abrir la dashcam en el indice {index}")
+        self.camara, indice_usado = _abrir_camara_dashcam(candidatos)
 
-        self.camara.set(cv2.CAP_PROP_FRAME_WIDTH, RESOLUCION_ANCHO)
-        self.camara.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION_ALTO)
-        self.camara.set(cv2.CAP_PROP_FPS, FPS)
+        if self.camara is None:
+            raise RuntimeError(
+                f"No se pudo abrir la dashcam en ninguno de los indices "
+                f"probados: {candidatos}"
+            )
 
         # deque con maxlen: cuando se llena, cada frame nuevo empuja
         # afuera al mas viejo automaticamente. Asi el buffer siempre
@@ -77,7 +119,7 @@ class Dashcam:
         self.hilo_captura = threading.Thread(target=self._capturar_loop, daemon=True)
         self.hilo_captura.start()
 
-        print("Dashcam iniciada correctamente")
+        print(f"Dashcam iniciada correctamente (indice {indice_usado})")
 
     def _capturar_loop(self):
         """Corre en un hilo aparte. Lee frames de la webcam sin parar
