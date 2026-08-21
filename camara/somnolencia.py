@@ -104,6 +104,14 @@ class DetectorSomnolencia:
         self.tiempo_ojos_cerrados = None
         self.dormido              = False
         self.ultimo_ear           = None
+        # Antes se mandaba un POST a /api/camara en CADA frame donde
+        # los ojos seguian cerrados (sin ningun corte), asi que un
+        # solo episodio de somnolencia de un par de segundos generaba
+        # 10-15 POSTs identicos seguidos -- se veia en el log del
+        # servidor y llenaba el panel de tarjetas duplicadas, tapando
+        # los videos reales. Con esta bandera se manda uno solo por
+        # episodio (se resetea en cuanto el conductor abre los ojos).
+        self._alerta_enviada      = False
         print("Detector de somnolencia iniciado")
 
     def analizar(self, frame, dibujar=True, resultado_mediapipe=None):
@@ -123,6 +131,7 @@ class DetectorSomnolencia:
             self.tiempo_ojos_cerrados = None
             self.dormido              = False
             self.ultimo_ear           = None
+            self._alerta_enviada      = False
             return frame, False
 
         landmarks  = resultado.multi_face_landmarks[0].landmark
@@ -140,21 +149,29 @@ class DetectorSomnolencia:
                 tiempo_cerrado = time.time() - self.tiempo_ojos_cerrados
                 if tiempo_cerrado >= SEGUNDOS_ALERTA:
                     self.dormido = True
-                    payload = {
-                        "tipo": "somnolencia",
-                        "confianza": round(1.0 - ear_avg, 2),
-                        "etiqueta": "conductor",
-                        "resolucion": "640x480",
-                        "descripcion": f"EAR: {ear_avg:.3f} — ojos cerrados {tiempo_cerrado:.1f}s"
-                    }
-                    threading.Thread(target=_post, args=(f"{SERVER}/api/camara", payload), daemon=True).start()
+                    if not self._alerta_enviada:
+                        self._alerta_enviada = True
+                        payload = {
+                            "tipo": "somnolencia",
+                            "confianza": round(1.0 - ear_avg, 2),
+                            "etiqueta": "conductor",
+                            "resolucion": "640x480",
+                            "descripcion": f"EAR: {ear_avg:.3f} — ojos cerrados {tiempo_cerrado:.1f}s"
+                        }
+                        threading.Thread(target=_post, args=(f"{SERVER}/api/camara", payload), daemon=True).start()
 
         else:
             self.tiempo_ojos_cerrados = None
             self.dormido              = False
+            self._alerta_enviada      = False
 
-        frame = dibujar_ojos(frame, puntos_izq, puntos_der)
+        # Antes dibujar_ojos() se llamaba SIEMPRE, incluso con
+        # dibujar=False (el modo que usa monitor.py en produccion):
+        # eran 12 circulos por frame dibujados sobre una imagen que
+        # nadie mira en ese modo. Ahora, con dibujar=False, no se
+        # toca el frame para nada en esta funcion.
         if dibujar:
+            frame = dibujar_ojos(frame, puntos_izq, puntos_der)
             frame = mostrar_ear(frame, ear_izq, ear_der, self.dormido)
 
         return frame, self.dormido
