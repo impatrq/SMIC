@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import collections
+import mediapipe as mp
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,6 +12,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from camara.somnolencia import DetectorSomnolencia
 from camara.distraccion import DetectorDistraccion
 from alertas.local      import alerta_somnolencia, alerta_distraccion
+from sensores.sincronizador import iniciar_sincronizador
+from camara.dashcam import Dashcam
 
 # --- CONSTANTES ---
 RESOLUCION_ANCHO     = 640
@@ -36,9 +39,9 @@ def iniciar_camara():
             main={
                 "format": "BGR888",
                 "size": (RESOLUCION_ANCHO, RESOLUCION_ALTO)
-            }
+            },
+            controls={"ScalerCrop": (0, 0, 3280, 2464)}
         )
-        camara.configure(config)
         camara.start()
         time.sleep(2)
         print("Camara iniciada correctamente")
@@ -109,9 +112,21 @@ def registrar_evento(tipo, dormido, distraido, direccion, ear):
 
 # --- CLASE PRINCIPAL ---
 class MonitorConductor:
-    def __init__(self):
+    def __init__(self, dashcam=None):
+        # FaceMesh unico, compartido entre somnolencia y
+        # distraccion para no duplicar la inferencia mas
+        # cara del pipeline en cada frame
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(
+            max_num_faces=1,
+            # No usamos puntos del iris (indices 468-477), asi
+            # que desactivamos el modelo extra que los calcula
+            refine_landmarks=False,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
         self.detector_somnolencia  = DetectorSomnolencia()
         self.detector_distraccion  = DetectorDistraccion()
+        self.dashcam                = dashcam
         self.ultima_alerta_somno   = 0
         self.ultima_alerta_distrac = 0
 
@@ -144,6 +159,9 @@ class MonitorConductor:
 
             registrar_evento(tipo, dormido, distraido, direccion, ear)
 
+            if self.dashcam is not None:
+                self.dashcam.guardar_clip(tipo)
+
             if tipo == "SOMNOLENCIA":
                 threading.Thread(
                     target=alerta_somnolencia, daemon=True
@@ -162,11 +180,14 @@ class MonitorConductor:
         Analiza un frame, actualiza el buffer y gestiona
         la grabacion de eventos.
         """
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        resultado_mediapipe = self.face_mesh.process(rgb)
+
         frame_somno, dormido = self.detector_somnolencia.analizar(
-            frame, dibujar=False
+            frame, dibujar=False, resultado_mediapipe=resultado_mediapipe
         )
         frame_final, distraido, direccion = self.detector_distraccion.analizar(
-            frame_somno, dibujar=False
+            frame_somno, dibujar=False, resultado_mediapipe=resultado_mediapipe
         )
 
         ear_info = self.detector_somnolencia.ultimo_ear
@@ -267,9 +288,18 @@ if __name__ == "__main__":
     print("=" * 50)
 
     crear_carpeta_eventos()
+    iniciar_sincronizador()
 
-    camara  = iniciar_camara()
-    monitor = MonitorConductor()
+    camara = iniciar_camara()
+
+    try:
+        dashcam = Dashcam()
+    except Exception as e:
+        print(f"Aviso: no se pudo iniciar la dashcam ({e}). "
+              f"El sistema sigue sin ella.")
+        dashcam = None
+
+    monitor = MonitorConductor(dashcam=dashcam)
 
     if camara is None:
         print("No se pudo iniciar la camara")
@@ -295,4 +325,6 @@ if __name__ == "__main__":
 
     finally:
         cerrar_camara(camara)
+        if dashcam is not None:
+            dashcam.cerrar()
         print("Sistema cerrado correctamente")

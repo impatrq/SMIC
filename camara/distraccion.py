@@ -136,7 +136,9 @@ class DetectorDistraccion:
     def __init__(self):
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             max_num_faces=1,
-            refine_landmarks=True,
+            # No usamos puntos del iris (indices 468-477), asi
+            # que desactivamos el modelo extra que los calcula
+            refine_landmarks=False,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
@@ -144,16 +146,24 @@ class DetectorDistraccion:
         self.distraido        = False
         print("Detector de distraccion iniciado")
 
-    def analizar(self, frame, dibujar=True):
+    def analizar(self, frame, dibujar=True, resultado_mediapipe=None):
         """
         Analiza un frame y detecta distraccion.
         Si dibujar=False no dibuja texto en el frame.
+        Si se pasa resultado_mediapipe, lo usa en vez de calcular
+        uno propio (permite compartir una sola inferencia de
+        FaceMesh con otros detectores, por ejemplo monitor.py).
         Devuelve (frame_anotado, esta_distraido, direccion).
         """
         alto, ancho = frame.shape[:2]
-        # Picamera2 ya entrega BGR; convertimos a RGB para MediaPipe
-        rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        resultado = self.face_mesh.process(rgb)
+
+        if resultado_mediapipe is not None:
+            resultado = resultado_mediapipe
+        else:
+            # Modo standalone: sin resultado compartido, calcula
+            # el suyo propio como antes
+            rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            resultado = self.face_mesh.process(rgb)
 
         if not resultado.multi_face_landmarks:
             self.tiempo_distraido = None

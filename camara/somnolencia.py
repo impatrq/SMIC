@@ -95,7 +95,9 @@ class DetectorSomnolencia:
     def __init__(self):
         self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             max_num_faces=1,
-            refine_landmarks=True,
+            # No usamos puntos del iris (indices 468-477), asi
+            # que desactivamos el modelo extra que los calcula
+            refine_landmarks=False,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
@@ -104,11 +106,18 @@ class DetectorSomnolencia:
         self.ultimo_ear           = None
         print("Detector de somnolencia iniciado")
 
-    def analizar(self, frame, dibujar=True):
+    def analizar(self, frame, dibujar=True, resultado_mediapipe=None):
         alto, ancho = frame.shape[:2]
-        # Picamera2 ya entrega BGR; convertimos a RGB para MediaPipe
-        rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        resultado = self.face_mesh.process(rgb)
+
+        if resultado_mediapipe is not None:
+            # Resultado ya calculado afuera (monitor.py corre un
+            # solo FaceMesh compartido entre todos los detectores)
+            resultado = resultado_mediapipe
+        else:
+            # Modo standalone: sin resultado compartido, calcula
+            # el suyo propio como antes
+            rgb       = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            resultado = self.face_mesh.process(rgb)
 
         if not resultado.multi_face_landmarks:
             self.tiempo_ojos_cerrados = None
