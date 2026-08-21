@@ -59,6 +59,7 @@ class EventoCamara(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     tipo = db.Column(db.String(64), nullable=False)   # deteccion, snapshot, alerta
+    fuente = db.Column(db.String(32), default="conductor")  # conductor o dashcam
     confianza = db.Column(db.Float)
     etiqueta = db.Column(db.String(128))              # persona, vehiculo, objeto
     imagen_path = db.Column(db.String(256))           # ruta relativa al archivo guardado
@@ -70,6 +71,7 @@ class EventoCamara(db.Model):
         return {
             "id": self.id,
             "tipo": self.tipo,
+            "fuente": self.fuente,
             "confianza": self.confianza,
             "etiqueta": self.etiqueta,
             "imagen_path": self.imagen_path,

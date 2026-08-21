@@ -18,7 +18,7 @@ def inicio():
         EventoSensor.query.order_by(EventoSensor.timestamp.desc()).limit(10).all()
     )
     ultimas_detecciones = (
-        EventoCamara.query.order_by(EventoCamara.timestamp.desc()).limit(6).all()
+        EventoCamara.query.order_by(EventoCamara.timestamp.desc()).limit(12).all()
     )
     ultimos_logs = (
         EventoSistema.query.order_by(EventoSistema.timestamp.desc()).limit(10).all()

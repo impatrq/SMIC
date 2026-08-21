@@ -205,33 +205,49 @@ def recibir_video():
     archivo = request.files["video"]
     tipo    = request.form.get("tipo", "evento")
     desc    = request.form.get("descripcion", "")
+    fuente  = request.form.get("fuente", "conductor")
 
-    # Guardar .avi temporal
-    ts         = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-    nombre_avi = f"{ts}_{archivo.filename}"
-    ruta_avi   = os.path.join(VIDEOS_DIR, nombre_avi)
-    archivo.save(ruta_avi)
+    # Guardar el archivo tal cual llega (.avi de la camara principal
+    # o .mp4 de la dashcam)
+    ts              = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+    nombre_original = f"{ts}_{archivo.filename}"
+    ruta_original   = os.path.join(VIDEOS_DIR, nombre_original)
+    archivo.save(ruta_original)
 
-    # Convertir a .mp4
-    nombre_mp4 = nombre_avi.replace(".avi", ".mp4")
-    ruta_mp4   = os.path.join(VIDEOS_DIR, nombre_mp4)
+    # Convertir siempre a .mp4 con H.264: el .avi de la camara
+    # principal y el .mp4 crudo de la dashcam (codec mp4v) no se
+    # reproducen bien en el navegador sin re-codificar
+    base_nombre, _ = os.path.splitext(nombre_original)
+    nombre_mp4     = f"{base_nombre}.mp4"
+    ruta_mp4       = os.path.join(VIDEOS_DIR, nombre_mp4)
+
+    # Si el original ya se llama igual que el destino (dashcam ya
+    # manda .mp4), usamos un archivo temporal para que ffmpeg no
+    # lea y escriba el mismo archivo a la vez
+    if ruta_original == ruta_mp4:
+        ruta_salida_ffmpeg = ruta_original + ".tmp.mp4"
+    else:
+        ruta_salida_ffmpeg = ruta_mp4
 
     try:
         subprocess.run(
-            [FFMPEG, "-i", ruta_avi, "-c:v", "libx264", "-preset", "fast",
-             "-crf", "28", "-c:a", "aac", "-y", ruta_mp4],
+            [FFMPEG, "-i", ruta_original, "-c:v", "libx264", "-preset", "fast",
+             "-crf", "28", "-c:a", "aac", "-y", ruta_salida_ffmpeg],
             capture_output=True, timeout=120, check=True
         )
-        os.remove(ruta_avi)
+        os.remove(ruta_original)
+        if ruta_salida_ffmpeg != ruta_mp4:
+            os.replace(ruta_salida_ffmpeg, ruta_mp4)
         ruta_final   = f"videos/{nombre_mp4}"
         nombre_final = nombre_mp4
     except Exception as e:
         print(f"[VIDEO] ffmpeg falló: {e}")
-        ruta_final   = f"videos/{nombre_avi}"
-        nombre_final = nombre_avi
+        ruta_final   = f"videos/{nombre_original}"
+        nombre_final = nombre_original
 
     evento = EventoCamara(
         tipo=tipo,
+        fuente=fuente,
         etiqueta=archivo.filename,
         imagen_path=ruta_final,
         descripcion=desc,
