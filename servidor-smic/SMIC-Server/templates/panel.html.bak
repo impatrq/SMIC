@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="15">
+  <!-- auto-refresh manejado por JS -->
   <title>SMIC — Panel de Control</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
@@ -45,7 +45,7 @@
     }
     .btn-sync:hover { background: rgba(31,111,235,.25); }
     .btn-sync:disabled { opacity: .5; cursor: not-allowed; }
-    .btn-sync .sync-icon { font-size: 14px; }
+    .deteccion-card video { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #000; }
 
     /* ── LAYOUT ── */
     .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
@@ -97,34 +97,16 @@
     .badge-error { background: rgba(218,54,51,.2); color: #f85149; }
     .badge-critico { background: rgba(139,71,229,.2); color: #a5a5ff; }
 
-    /* ── EVENTOS DE CÁMARA (pares conductor / dashcam) ── */
-    .eventos-camara { display: flex; flex-direction: column; gap: 14px; }
-    .evento-fila {
-      background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    /* ── DETECCIONES CÁMARA ── */
+    .detecciones-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .deteccion-card {
+      background: var(--bg); border-radius: 6px; overflow: hidden; border: 1px solid var(--border);
     }
-    .evento-fila-header {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
-      font-size: 12px; color: var(--muted);
-    }
-    .evento-par { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .clip-col .clip-col-titulo {
-      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
-      margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
-    }
-    .clip-col.conductor .clip-col-titulo { color: var(--yellow); }
-    .clip-col.dashcam .clip-col-titulo { color: var(--blue); }
-    .clip-col video, .clip-col img {
-      width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px;
-      background: #000; display: block;
-    }
-    .clip-col .clip-meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
-    .clip-vacio {
-      width: 100%; aspect-ratio: 16/9; border-radius: 6px; border: 1px dashed var(--border);
-      display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px;
-    }
-    @media (max-width: 700px) {
-      .evento-par { grid-template-columns: 1fr; }
-    }
+    .deteccion-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
+    .deteccion-card .det-info { padding: 8px; }
+    .deteccion-card .det-label { font-weight: 600; font-size: 13px; }
+    .deteccion-card .det-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .det-placeholder { width: 100%; aspect-ratio: 16/9; background: var(--border); display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 24px; }
 
     /* ── LOGS ── */
     .log-entry { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
@@ -139,9 +121,11 @@
       .grid-4 { grid-template-columns: 1fr 1fr; }
       .grid-3 { grid-template-columns: 1fr; }
       .grid-2 { grid-template-columns: 1fr; }
+      .detecciones-grid { grid-template-columns: repeat(2, 1fr); }
     }
     @media (max-width: 500px) {
       .grid-4 { grid-template-columns: 1fr; }
+      .detecciones-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -154,7 +138,7 @@
   </div>
   <div class="header-right">
     <button class="btn-sync" id="btnSync" onclick="sincronizarClips()">
-      <span class="sync-icon">&#x21BB;</span> Actualizar clips
+      <span>&#x21BB;</span> Actualizar clips
     </button>
     <span class="live">EN VIVO &mdash; actualiza cada 15 s</span>
   </div>
@@ -287,56 +271,37 @@
     </div>
   </div>
 
-  <!-- ── CÁMARA: EVENTOS PAREADOS CONDUCTOR / DASHCAM ── -->
+  <!-- ── CÁMARA ── -->
   <div class="card" style="margin-bottom:20px">
-    <div class="card-title">&#x1F4F7; Eventos de cámara &mdash; conductor y dashcam</div>
-    {% if pares_camara %}
-      <div class="eventos-camara">
-        {% for par in pares_camara %}
-        <div class="evento-fila">
-          <div class="evento-fila-header">
-            <span class="badge {% if par.tipo == 'somnolencia' %}badge-alert{% elif par.tipo == 'distraccion' %}badge-warn{% else %}badge-info{% endif %}">
-              {{ par.tipo.upper() }}
-            </span>
-            <span>{{ par.timestamp.strftime("%d/%m/%Y %H:%M:%S") }}</span>
-          </div>
-          <div class="evento-par">
-            <!-- Cámara del conductor: siempre a la izquierda -->
-            <div class="clip-col conductor">
-              <div class="clip-col-titulo">&#x1F9D1; Conductor</div>
-              {% set c = par.conductor %}
-              {% if c and c.imagen_path %}
-                {% if c.imagen_path.endswith('.mp4') or c.imagen_path.endswith('.avi') %}
-                  <video controls muted preload="metadata" src="{{ url_for('static', filename=c.imagen_path) }}"></video>
-                {% else %}
-                  <img src="{{ url_for('static', filename=c.imagen_path) }}" alt="Clip conductor">
-                {% endif %}
-                <div class="clip-meta">{{ c.timestamp.strftime("%H:%M:%S") }}</div>
-              {% else %}
-                <div class="clip-vacio">Sin clip del conductor</div>
-              {% endif %}
+    <div class="card-title">&#x1F4F7; Detecciones de cámara</div>
+    {% if ultimas_detecciones %}
+      <div class="detecciones-grid">
+        {% for d in ultimas_detecciones %}
+        <div class="deteccion-card">
+          {% if d.imagen_path and d.imagen_path.endswith('.mp4') %}
+            <video controls preload="metadata">
+              <source src="{{ url_for('static', filename=d.imagen_path) }}" type="video/mp4">
+            </video>
+          {% elif d.imagen_path and not d.imagen_path.endswith('.mp4') %}
+            <div class="det-placeholder" style="font-size:13px;padding:8px">
+              &#x1F3AC; {{ d.etiqueta }}<br>
+              <a href="{{ url_for('static', filename=d.imagen_path) }}" style="color:#58a6ff;font-size:11px" download>Descargar clip</a>
             </div>
-            <!-- Dashcam: siempre a la derecha -->
-            <div class="clip-col dashcam">
-              <div class="clip-col-titulo">&#x1F697; Dashcam</div>
-              {% set d = par.dashcam %}
-              {% if d and d.imagen_path %}
-                {% if d.imagen_path.endswith('.mp4') or d.imagen_path.endswith('.avi') %}
-                  <video controls muted preload="metadata" src="{{ url_for('static', filename=d.imagen_path) }}"></video>
-                {% else %}
-                  <img src="{{ url_for('static', filename=d.imagen_path) }}" alt="Clip dashcam">
-                {% endif %}
-                <div class="clip-meta">{{ d.timestamp.strftime("%H:%M:%S") }}</div>
-              {% else %}
-                <div class="clip-vacio">Sin clip de dashcam</div>
-              {% endif %}
+          {% else %}
+            <div class="det-placeholder">&#x1F4F7;</div>
+          {% endif %}
+          <div class="det-info">
+            <div class="det-label">
+              {{ d.etiqueta or d.tipo }}
+              {% if d.confianza %}<span style="color:var(--muted);font-size:11px"> {{ "%.0f"|format(d.confianza * 100) }}%</span>{% endif %}
             </div>
+            <div class="det-meta">{{ d.timestamp.strftime("%d/%m %H:%M:%S") }} &mdash; {{ d.tipo }}</div>
           </div>
         </div>
         {% endfor %}
       </div>
     {% else %}
-      <div class="no-data">Sin eventos de cámara registrados</div>
+      <div class="no-data">Sin detecciones registradas</div>
     {% endif %}
   </div>
 
@@ -378,30 +343,43 @@
 {% endif %}
 
 <script>
+  // Auto-refresh que se pausa si hay un video reproduciéndose
+  let refreshTimer;
+  function iniciarRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      const videos = document.querySelectorAll("video");
+      const hayVideoActivo = Array.from(videos).some(v => !v.paused && !v.ended);
+      if (hayVideoActivo) {
+        iniciarRefresh();
+      } else {
+        location.reload();
+      }
+    }, 15000);
+  }
+  iniciarRefresh();
+
   function sincronizarClips() {
     const btn = document.getElementById('btnSync');
     btn.disabled = true;
-    btn.innerHTML = '<span class="sync-icon">&#x231B;</span> Sincronizando...';
+    btn.innerHTML = '<span>&#x231B;</span> Sincronizando...';
     fetch('/api/sync', { method: 'POST' })
       .then(r => r.json())
       .then(d => {
-        btn.innerHTML = d.ok
-          ? '<span class="sync-icon">&#x2713;</span> Sincronizado'
-          : '<span class="sync-icon">&#x26A0;</span> Error';
+        btn.innerHTML = d.ok ? '<span>&#x2713;</span> Sincronizado' : '<span>&#x26A0;</span> Error';
         setTimeout(() => {
           btn.disabled = false;
-          btn.innerHTML = '<span class="sync-icon">&#x21BB;</span> Actualizar clips';
+          btn.innerHTML = '<span>&#x21BB;</span> Actualizar clips';
         }, 3000);
       })
       .catch(() => {
-        btn.innerHTML = '<span class="sync-icon">&#x26A0;</span> Error de red';
+        btn.innerHTML = '<span>&#x26A0;</span> Error de red';
         setTimeout(() => {
           btn.disabled = false;
-          btn.innerHTML = '<span class="sync-icon">&#x21BB;</span> Actualizar clips';
+          btn.innerHTML = '<span>&#x21BB;</span> Actualizar clips';
         }, 3000);
       });
   }
 </script>
-
 </body>
 </html>

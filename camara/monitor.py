@@ -92,7 +92,7 @@ def crear_carpeta_eventos():
     print(f"Carpeta de eventos: {CARPETA_EVENTOS}")
 
 
-def guardar_clip(buffer_frames, frames_despues, tipo_evento):
+def guardar_clip(buffer_frames, frames_despues, tipo_evento, evento_id):
     """
     Guarda un clip de video con los frames del buffer (antes)
     mas los frames posteriores al evento.
@@ -103,6 +103,12 @@ def guardar_clip(buffer_frames, frames_despues, tipo_evento):
     conductor justo cuando mas importa no perder frames. La dashcam
     (dashcam.py) ya guardaba sus clips en un hilo propio; esto iguala
     el comportamiento para la camara del conductor.
+
+    evento_id: mismo identificador que recibe dashcam.guardar_clip()
+    para este evento (ver MonitorConductor.disparar_evento). Va en el
+    nombre del archivo para que el sincronizador y el servidor puedan
+    reconocer que el clip del conductor y el de la dashcam son del
+    mismo evento, aunque terminen de escribirse en instantes distintos.
 
     Se escribe primero en CARPETA_TEMPORAL (una subcarpeta oculta) y
     se mueve a CARPETA_EVENTOS (su nombre final) recien cuando el
@@ -118,8 +124,7 @@ def guardar_clip(buffer_frames, frames_despues, tipo_evento):
     final del archivo -- "clip.avi.tmp" hace que ni siquiera pueda
     abrirlo.)
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    nombre_archivo  = f"{tipo_evento}_{timestamp}.avi"
+    nombre_archivo  = f"{tipo_evento}_{evento_id}.avi"
     nombre          = os.path.join(CARPETA_EVENTOS, nombre_archivo)
     nombre_temporal = os.path.join(CARPETA_TEMPORAL, nombre_archivo)
 
@@ -264,6 +269,7 @@ class MonitorConductor:
         self.grabando_post_evento   = False
         self.frames_post_evento     = []
         self.tipo_evento_actual     = ""
+        self.evento_id_actual       = ""
         self.contador_post_evento   = 0
         self.frames_post_necesarios = FPS * SEGUNDOS_DESPUES
 
@@ -285,9 +291,9 @@ class MonitorConductor:
     def _escritor_clips(self):
         """Hilo en segundo plano: guarda clips sin bloquear la camara."""
         while True:
-            buffer_frames, frames_despues, tipo_evento = self._cola_clips.get()
+            buffer_frames, frames_despues, tipo_evento, evento_id = self._cola_clips.get()
             try:
-                guardar_clip(buffer_frames, frames_despues, tipo_evento)
+                guardar_clip(buffer_frames, frames_despues, tipo_evento, evento_id)
             except Exception as e:
                 print(f"[CLIP] Error guardando clip: {e}")
             finally:
@@ -336,10 +342,17 @@ class MonitorConductor:
             self.tipo_evento_actual   = tipo
             self.buffer_al_evento     = list(self.buffer)
 
+            # ID compartido entre el clip de esta camara y el de la
+            # dashcam: se genera una sola vez, en el unico punto donde
+            # se sabe que ambas camaras estan grabando el mismo evento.
+            # Con esto el panel del servidor puede mostrar los 2 clips
+            # emparejados sin tener que adivinar por hora de archivo.
+            self.evento_id_actual = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
             registrar_evento(tipo, dormido, distraido, direccion, ear)
 
             if self.dashcam is not None:
-                self.dashcam.guardar_clip(tipo)
+                self.dashcam.guardar_clip(tipo, self.evento_id_actual)
 
             if tipo == "SOMNOLENCIA":
                 threading.Thread(
@@ -418,7 +431,8 @@ class MonitorConductor:
                 self._cola_clips.put((
                     self.buffer_al_evento,
                     self.frames_post_evento,
-                    self.tipo_evento_actual
+                    self.tipo_evento_actual,
+                    self.evento_id_actual
                 ))
                 self.grabando_post_evento = False
                 self.frames_post_evento   = []

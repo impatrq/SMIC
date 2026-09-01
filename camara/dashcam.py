@@ -146,23 +146,28 @@ class Dashcam:
                 # instante en vez de saturar el CPU en un loop vacio
                 time.sleep(0.05)
 
-    def guardar_clip(self, tipo_evento):
+    def guardar_clip(self, tipo_evento, evento_id):
         """Llamar a esta funcion desde monitor.py cuando ocurre un evento.
         No bloquea: dispara un hilo aparte que arma el clip y lo guarda,
-        mientras el resto del sistema sigue funcionando normalmente."""
+        mientras el resto del sistema sigue funcionando normalmente.
+
+        evento_id: mismo identificador que MonitorConductor le pasa a
+        guardar_clip() para el clip de la camara del conductor de este
+        mismo evento (ver camara/monitor.py disparar_evento). Va en el
+        nombre del archivo para poder emparejar los 2 clips en el panel
+        del servidor."""
         hilo = threading.Thread(
             target=self._guardar_clip_worker,
-            args=(tipo_evento,),
+            args=(tipo_evento, evento_id),
             daemon=True
         )
         hilo.start()
 
-    def _guardar_clip_worker(self, tipo_evento):
+    def _guardar_clip_worker(self, tipo_evento, evento_id):
         """Arma y escribe el archivo de video: primero los frames que ya
         estaban en el buffer (pre-evento), despues los que van llegando
         en tiempo real (post-evento)."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        nombre_archivo = f"dashcam_{tipo_evento}_{timestamp}.mp4"
+        nombre_archivo = f"dashcam_{tipo_evento}_{evento_id}.mp4"
         ruta = os.path.join(CARPETA_EVENTOS, nombre_archivo)
 
         # Se escribe primero en CARPETA_TEMPORAL y recien se mueve a
@@ -242,7 +247,8 @@ if __name__ == "__main__":
         time.sleep(3)
 
         print("Simulando evento -> guardando clip...")
-        dash.guardar_clip("PRUEBA")
+        evento_id_prueba = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        dash.guardar_clip("PRUEBA", evento_id_prueba)
 
         # Esperamos a que termine de escribir el clip antes de cerrar
         time.sleep(SEGUNDOS_POST_EVENTO + 2)

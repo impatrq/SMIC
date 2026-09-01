@@ -1,6 +1,7 @@
-venv/
+﻿venv/
 __pycache__/
 *.pyc
 .env
-*.dbservidor-smic/SMIC-Server/static/videos/* 
-servidor-smic/SMIC-Server/static/uploads/* 
+*.db
+servidor-smic/SMIC-Server/static/videos/
+servidor-smic/SMIC-Server/static/uploads/
