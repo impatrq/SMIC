@@ -47,15 +47,21 @@ def hay_conexion():
 
 def _info_clip(ruta_clip):
     """
-    Deduce fuente/tipo/timestamp a partir del nombre del archivo.
+    Deduce fuente/tipo/evento_id a partir del nombre del archivo.
 
     Nombres esperados (ver monitor.py y dashcam.py):
-      - Camara del conductor: "{TIPO}_{timestamp}.avi"
-        p.ej. "SOMNOLENCIA_20260714_162938.avi"
-      - Dashcam:               "dashcam_{TIPO}_{timestamp}.mp4"
-        p.ej. "dashcam_SOMNOLENCIA_20260714_162927.mp4"
+      - Camara del conductor: "{TIPO}_{evento_id}.avi"
+        p.ej. "SOMNOLENCIA_20260714_162938_123456.avi"
+      - Dashcam:               "dashcam_{TIPO}_{evento_id}.mp4"
+        p.ej. "dashcam_SOMNOLENCIA_20260714_162938_123456.mp4"
 
-    Devuelve (fuente, tipo, timestamp, content_type).
+    evento_id es el mismo string para el clip del conductor y el de la
+    dashcam de un mismo evento (lo genera monitor.py una sola vez en
+    disparar_evento y se lo pasa a las 2 camaras), así que sirve para
+    que el servidor los empareje sin depender de a qué hora exacta
+    terminó de escribirse cada archivo.
+
+    Devuelve (fuente, tipo, evento_id, content_type).
     """
     nombre     = os.path.basename(ruta_clip)
     base, ext  = os.path.splitext(nombre)
@@ -69,11 +75,11 @@ def _info_clip(ruta_clip):
 
     partes    = base.split("_")
     tipo      = partes[0].lower()
-    timestamp = "_".join(partes[1:])
+    evento_id = "_".join(partes[1:])
 
     content_type = CONTENT_TYPE_POR_EXTENSION.get(ext, "application/octet-stream")
 
-    return fuente, tipo, timestamp, content_type
+    return fuente, tipo, evento_id, content_type
 
 
 def enviar_clip(ruta_clip):
@@ -81,7 +87,7 @@ def enviar_clip(ruta_clip):
     Devuelve True si fue exitoso."""
     nombre = os.path.basename(ruta_clip)
     try:
-        fuente, tipo, timestamp, content_type = _info_clip(ruta_clip)
+        fuente, tipo, evento_id, content_type = _info_clip(ruta_clip)
 
         with open(ruta_clip, "rb") as f:
             r = requests.post(
@@ -90,7 +96,8 @@ def enviar_clip(ruta_clip):
                 data={
                     "tipo":        tipo,
                     "fuente":      fuente,
-                    "descripcion": f"Clip {tipo} ({fuente}) — {timestamp}"
+                    "evento_id":   evento_id,
+                    "descripcion": f"Clip {tipo} ({fuente}) — {evento_id}"
                 },
                 timeout=60
             )
