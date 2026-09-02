@@ -15,21 +15,43 @@ except ImportError:
 # --- Configuración ---
 PUERTO = "/dev/serial0"
 BAUD = 9600
-APN = "internet"  # TODO: reemplazar por el APN real (Conecty M2M o igprs.claro.com.ar)
+APN = "igprs.claro.com.ar"  # chip prepago Claro
 
-# TODO: esto tiene que ser una URL PÚBLICA para que el SIM800L la alcance
-# por la red celular -- la IP local (192.168.137.1) que usan sincronizador.py
-# y volante_ble.py NO sirve acá, porque la conexión de datos del módulo no
-# tiene ruta a esa red local. Para probar ya, exponé tu Flask local con
-# ngrok (https://ngrok.com) y pegá acá la URL que te da, con /api/sistema
-# al final. Ejemplo: "https://algo-random.ngrok-free.app/api/sistema"
-SERVER_URL = "http://192.168.137.1:5000/api/sistema"
+# URL pública del servidor (Flask local expuesto por ngrok con subdominio
+# reservado). IMPORTANTE: el SIM800L NO soporta el handshake SSL/TLS que
+# exige el endpoint https:// de ngrok (falla con error de modulo 606), asi
+# que esto tiene que ser HTTP plano. Para eso ngrok se levanta con:
+#   ngrok http 5000 --scheme http
+# (si se usa el esquema https normal, ngrok redirige el HTTP a HTTPS y el
+# modulo tampoco puede seguir ese redirect).
+SERVER_URL = "http://enticing-squeamish-cornea.ngrok-free.dev/api/sistema"
 
 
 def _at(ser, comando, espera=1.5):
+    ser.reset_input_buffer()
     ser.write((comando + "\r").encode())
     time.sleep(espera)
     return ser.read(ser.in_waiting or 1).decode(errors="ignore")
+
+
+def _esperar_urc(ser, prefijo, timeout=30):
+    """Espera activamente una respuesta asincronica (URC) del modulo, tipo
+    '+HTTPACTION: ...'. OJO: hay que buscar el prefijo con los dos puntos
+    (ej. '\\n+HTTPACTION:') y no solo '+HTTPACTION', porque el eco del
+    comando 'AT+HTTPACTION=1' tambien contiene esa substring y corta la
+    espera antes de tiempo."""
+    fin = time.time() + timeout
+    buffer = ""
+    while time.time() < fin:
+        if ser.in_waiting:
+            buffer += ser.read(ser.in_waiting).decode(errors="ignore")
+            if prefijo in buffer:
+                time.sleep(0.5)
+                if ser.in_waiting:
+                    buffer += ser.read(ser.in_waiting).decode(errors="ignore")
+                return buffer
+        time.sleep(0.3)
+    return buffer
 
 
 def _abrir_bearer(ser, apn=APN):
@@ -72,6 +94,10 @@ def mandar_alerta_sim(tipo_evento):
         print(f"[SIM800L] No se pudo abrir el puerto serie: {e}")
         return False
 
+    # Por si quedo una sesion HTTP colgada de un intento anterior
+    _at(ser, "AT+HTTPTERM", espera=2)
+    _at(ser, "AT+SAPBR=0,1", espera=2)
+
     if not _abrir_bearer(ser):
         ser.close()
         print("[SIM800L] Sin GPRS en este momento, no se pudo mandar la alerta")
@@ -90,24 +116,32 @@ def mandar_alerta_sim(tipo_evento):
         + '"}'
     )
 
-    _at(ser, "AT+HTTPINIT")
-    _at(ser, 'AT+HTTPPARA="CID",1')
-    _at(ser, f'AT+HTTPPARA="URL","{SERVER_URL}"')
-    _at(ser, 'AT+HTTPPARA="CONTENT","application/json"')
+    _at(ser, "AT+HTTPINIT", espera=2)
+    _at(ser, 'AT+HTTPPARA="CID",1', espera=1)
+    _at(ser, "AT+HTTPSSL=0", espera=1)  # el modulo no soporta el TLS de ngrok, HTTP plano
+    _at(ser, f'AT+HTTPPARA="URL","{SERVER_URL}"', espera=1)
+    _at(ser, 'AT+HTTPPARA="CONTENT","application/json"', espera=1)
 
     ser.write(f"AT+HTTPDATA={len(body)},10000\r".encode())
     time.sleep(1)
     ser.write(body.encode())
     time.sleep(2)
 
-    resp_action = _at(ser, "AT+HTTPACTION=1", espera=5)  # 1 = POST
+    ser.reset_input_buffer()
+    ser.write(b"AT+HTTPACTION=1\r")  # 1 = POST
+    resp_action = _esperar_urc(ser, "\n+HTTPACTION:", timeout=30)
+
     _at(ser, "AT+HTTPREAD", espera=2)
-    _at(ser, "AT+HTTPTERM")
+    _at(ser, "AT+HTTPTERM", espera=2)
     _cerrar_bearer(ser)
     ser.close()
 
-    exito = ",200," in resp_action or resp_action.strip().endswith("200")
-    print(f"[SIM800L] Alerta {'enviada' if exito else 'fallida'}: {mensaje}")
+    # Codigo de resultado viene como "+HTTPACTION: <metodo>,<status>,<largo>"
+    m = re.search(r"\+HTTPACTION:\s*\d+,(\d+),", resp_action)
+    codigo = int(m.group(1)) if m else None
+    exito = codigo is not None and 200 <= codigo < 300
+
+    print(f"[SIM800L] Alerta {'enviada' if exito else 'fallida'} (codigo {codigo}): {mensaje}")
     return exito
 
 
