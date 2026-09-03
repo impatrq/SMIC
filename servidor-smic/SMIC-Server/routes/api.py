@@ -1,6 +1,6 @@
 import os
 from flask import Blueprint, request, jsonify
-from models import db, EventoGPS, EventoSensor, EventoCamara, EventoSistema
+from models import db, EventoGPS, EventoSensor, EventoCamara, EventoSistema, EventoAlerta
 from datetime import datetime
 
 api_bp = Blueprint("api", __name__)
@@ -227,6 +227,38 @@ def listar_videos():
         query = query.filter_by(tipo=tipo)
 
     eventos = query.order_by(EventoCamara.timestamp.desc()).limit(limit).all()
+    return jsonify([e.to_dict() for e in eventos])
+
+
+# ── ALERTAS (SIM800L: tipo + ubicación mandados en el momento del evento) ─────
+# El clip de video NO llega por acá -- eso sigue el camino de /api/video
+# (sensores/sincronizador.py), que recién sube el clip cuando detecta
+# conexión a la red local. Acá solo entra tipo/lat/lon/fuente_ubicacion,
+# para poder dibujar cada evento como un marcador en el mapa del panel.
+
+@api_bp.route("/alerta", methods=["POST"])
+def recibir_alerta():
+    data = request.get_json(silent=True)
+    if not data or "tipo" not in data:
+        return jsonify({"error": "tipo es requerido"}), 400
+
+    evento = EventoAlerta(
+        tipo=data["tipo"],
+        latitud=data.get("lat"),
+        longitud=data.get("lon"),
+        fuente_ubicacion=data.get("fuente_ubicacion"),
+    )
+    db.session.add(evento)
+    db.session.commit()
+    return jsonify({"ok": True, "id": evento.id}), 201
+
+
+@api_bp.route("/alerta", methods=["GET"])
+def listar_alertas():
+    limit = min(int(request.args.get("limit", 100)), 500)
+    eventos = (
+        EventoAlerta.query.order_by(EventoAlerta.timestamp.desc()).limit(limit).all()
+    )
     return jsonify([e.to_dict() for e in eventos])
 
 
