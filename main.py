@@ -1,3 +1,19 @@
+# AVISO: este script quedó obsoleto/en desuso. El programa que corre de
+# verdad en la RPi4 es camara/monitor.py (python -m camara.monitor):
+# tiene hilo de captura separado, dashcam sincronizada, cooldowns por tipo
+# de alerta, y ya llama a mandar_alerta_sim() en disparar_evento() para
+# mandar la alerta + ubicación por el SIM800L en el momento del evento.
+# Este main.py además tiene un bug sin arreglar: iniciar_camara() (de
+# camara/deteccion.py) devuelve un Picamera2, que no tiene método .read()
+# (esa es la API de cv2.VideoCapture) -- el loop de abajo rompe con
+# AttributeError apenas arranca. También sube el clip a Cloudinary en el
+# momento del evento (datos/registro.py), que es justo lo que NO se quiere
+# mientras se maneja con datos móviles -- el clip tiene que quedar guardado
+# en la RPi4 y subirse recién cuando el sistema detecta conexión a la red
+# local (eso ya lo hace sensores/sincronizador.py, usado por monitor.py).
+# Se deja este archivo sin borrar por las dudas, pero no usar para correr
+# el sistema.
+
 from flask import Flask
 from datos.modelos import db
 from datos.registro import guardar_evento, BufferVideo
