@@ -1,9 +1,10 @@
 from flask import Blueprint, render_template
-from models import EventoGPS, EventoSensor, EventoCamara, EventoSistema
+from models import EventoGPS, EventoSensor, EventoCamara, EventoSistema, EventoAlerta
 
 panel_bp = Blueprint("panel", __name__)
 
 CANTIDAD_EVENTOS_CAMARA = 12
+CANTIDAD_ALERTAS_MAPA = 50
 
 # Cuantos EventoCamara traemos de la base antes de agrupar por
 # evento_id. Cada evento genera hasta 2 filas (conductor + dashcam),
@@ -73,12 +74,30 @@ def inicio():
         EventoSistema.query.order_by(EventoSistema.timestamp.desc()).limit(10).all()
     )
 
+    # Alertas mandadas por el SIM800L en el momento del evento (tipo +
+    # ubicacion aproximada), para dibujar cada una como marcador en el
+    # mapa. Solo las que tienen ubicacion -- si en algun envio no hubo fix
+    # ni por GSM, latitud/longitud quedan null y no hay donde marcarlas.
+    alertas_mapa = (
+        EventoAlerta.query.filter(EventoAlerta.latitud.isnot(None))
+        .order_by(EventoAlerta.timestamp.desc())
+        .limit(CANTIDAD_ALERTAS_MAPA)
+        .all()
+    )
+    ultimas_alertas_manejo = (
+        EventoAlerta.query.order_by(EventoAlerta.timestamp.desc()).limit(10).all()
+    )
+    # Version en dict (no objetos SQLAlchemy) para volcar directo como JSON
+    # en el <script> del mapa.
+    alertas_mapa_json = [e.to_dict() for e in alertas_mapa]
+
     resumen = {
         "total_gps": EventoGPS.query.count(),
         "total_sensores": EventoSensor.query.count(),
         "alertas_activas": EventoSensor.query.filter_by(alerta=True).count(),
         "total_detecciones": EventoCamara.query.count(),
         "errores_sistema": EventoSistema.query.filter_by(nivel="error").count(),
+        "total_alertas_manejo": EventoAlerta.query.count(),
     }
 
     return render_template(
@@ -88,5 +107,8 @@ def inicio():
         ultimos_sensores=ultimos_sensores,
         pares_camara=pares_camara,
         ultimos_logs=ultimos_logs,
+        alertas_mapa=alertas_mapa,
+        alertas_mapa_json=alertas_mapa_json,
+        ultimas_alertas_manejo=ultimas_alertas_manejo,
         resumen=resumen,
     )

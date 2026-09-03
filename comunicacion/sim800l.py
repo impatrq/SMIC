@@ -1,5 +1,6 @@
 import time
 import re
+import json
 
 try:
     import serial
@@ -24,7 +25,7 @@ APN = "igprs.claro.com.ar"  # chip prepago Claro
 #   ngrok http 5000 --scheme http
 # (si se usa el esquema https normal, ngrok redirige el HTTP a HTTPS y el
 # modulo tampoco puede seguir ese redirect).
-SERVER_URL = "http://enticing-squeamish-cornea.ngrok-free.dev/api/sistema"
+SERVER_URL = "http://enticing-squeamish-cornea.ngrok-free.dev/api/alerta"
 
 
 def _at(ser, comando, espera=1.5):
@@ -78,12 +79,16 @@ def _obtener_ubicacion(ser):
 def mandar_alerta_sim(tipo_evento):
     """Manda SOLO el tipo de evento + la ubicación aproximada al servidor,
     por la conexión de datos del SIM800L (independiente del WiFi/Ethernet
-    local). No manda video ni ningún otro dato del evento -- eso sigue
-    yendo por datos/registro.py + Cloudinary tal como ya está armado.
+    local). No manda el clip ni ningún otro dato del evento -- el clip se
+    graba y queda guardado en la RPi4 (ver camara/monitor.py y
+    sensores/sincronizador.py), y se sube recién cuando el sistema detecta
+    conexión a la red local (por ejemplo al conectarse a una computadora),
+    no en el momento del evento.
 
-    Reusa el endpoint /api/sistema que ya existe en el servidor
-    (routes/api.py), sin necesidad de agregar nada nuevo del lado del
-    servidor.
+    Manda tipo/timestamp/lat/lon como campos separados (no como un mensaje
+    de texto armado) al endpoint /api/alerta del servidor (routes/api.py),
+    para que el panel pueda dibujar cada evento como un marcador propio en
+    el mapa, con su tipo y ubicación.
     """
     if not _PYSERIAL_DISPONIBLE:
         return False
@@ -104,17 +109,15 @@ def mandar_alerta_sim(tipo_evento):
         return False
 
     ubicacion = _obtener_ubicacion(ser)
-    if ubicacion:
-        link = f"https://maps.google.com/?q={ubicacion['lat']},{ubicacion['lon']}"
-        mensaje = f"{tipo_evento.upper()} detectado. Ubicacion (GSM aprox.): {link}"
-    else:
-        mensaje = f"{tipo_evento.upper()} detectado. Ubicacion no disponible"
 
-    body = (
-        '{"nivel":"alerta","fuente":"sim800l","mensaje":"'
-        + mensaje.replace('"', "'")
-        + '"}'
-    )
+    payload = {
+        "tipo": tipo_evento.lower(),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "lat": ubicacion["lat"] if ubicacion else None,
+        "lon": ubicacion["lon"] if ubicacion else None,
+        "fuente_ubicacion": "GSM" if ubicacion else None,
+    }
+    body = json.dumps(payload)
 
     _at(ser, "AT+HTTPINIT", espera=2)
     _at(ser, 'AT+HTTPPARA="CID",1', espera=1)
@@ -141,7 +144,7 @@ def mandar_alerta_sim(tipo_evento):
     codigo = int(m.group(1)) if m else None
     exito = codigo is not None and 200 <= codigo < 300
 
-    print(f"[SIM800L] Alerta {'enviada' if exito else 'fallida'} (codigo {codigo}): {mensaje}")
+    print(f"[SIM800L] Alerta {'enviada' if exito else 'fallida'} (codigo {codigo}): {payload}")
     return exito
 
 

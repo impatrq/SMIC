@@ -185,11 +185,15 @@
   <!-- ── GPS + MAPA ── -->
   <div class="grid-3" style="margin-bottom:20px">
     <div class="card">
-      <div class="card-title">&#x1F5FA; Mapa &mdash; última posición GPS</div>
-      {% if ultimo_gps %}
+      <div class="card-title">&#x1F5FA; Mapa &mdash; posición y alertas de manejo</div>
+      {% if ultimo_gps or alertas_mapa %}
         <div id="mapa"></div>
+        <div style="display:flex;gap:14px;margin-top:8px;font-size:11px;color:var(--muted)">
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);margin-right:4px"></span>Somnolencia</span>
+          <span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--yellow);margin-right:4px"></span>Distracción</span>
+        </div>
       {% else %}
-        <div class="no-data" style="height:320px;display:flex;align-items:center;justify-content:center">Sin datos GPS</div>
+        <div class="no-data" style="height:320px;display:flex;align-items:center;justify-content:center">Sin datos GPS ni alertas con ubicación</div>
       {% endif %}
     </div>
     <div class="card">
@@ -287,6 +291,40 @@
     </div>
   </div>
 
+  <!-- ── ALERTAS DE MANEJO (SIM800L: tipo + ubicación en el momento) ── -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title">&#x1F6A8; Alertas de manejo &mdash; tipo + ubicación (SIM800L)</div>
+    {% if ultimas_alertas_manejo %}
+      <table>
+        <thead>
+          <tr><th>Tipo</th><th>Ubicación</th><th>Fuente</th><th>Hora</th></tr>
+        </thead>
+        <tbody>
+          {% for a in ultimas_alertas_manejo %}
+          <tr>
+            <td>
+              <span class="badge {% if a.tipo == 'somnolencia' %}badge-alert{% elif a.tipo == 'distraccion' %}badge-warn{% else %}badge-info{% endif %}">
+                {{ a.tipo.upper() }}
+              </span>
+            </td>
+            <td>
+              {% if a.latitud and a.longitud %}
+                {{ "%.5f"|format(a.latitud) }}, {{ "%.5f"|format(a.longitud) }}
+              {% else %}
+                <span style="color:var(--muted)">sin ubicación</span>
+              {% endif %}
+            </td>
+            <td style="color:var(--muted);font-size:12px">{{ a.fuente_ubicacion or "—" }}</td>
+            <td style="color:var(--muted);font-size:12px">{{ a.timestamp.strftime("%d/%m/%Y %H:%M:%S") }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="no-data" style="color:#3fb950">Sin alertas de manejo recibidas todavía</div>
+    {% endif %}
+  </div>
+
   <!-- ── CÁMARA: EVENTOS PAREADOS CONDUCTOR / DASHCAM ── -->
   <div class="card" style="margin-bottom:20px">
     <div class="card-title">&#x1F4F7; Eventos de cámara &mdash; conductor y dashcam</div>
@@ -360,20 +398,53 @@
 </div><!-- /container -->
 
 <!-- ── MAPA LEAFLET ── -->
-{% if ultimo_gps %}
+{% if ultimo_gps or alertas_mapa %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const lat = {{ ultimo_gps.latitud }};
-  const lon = {{ ultimo_gps.longitud }};
-  const map = L.map("mapa").setView([lat, lon], 15);
+  const alertasMapa = {{ alertas_mapa_json|tojson }};
+
+  {% if ultimo_gps %}
+  const centroLat = {{ ultimo_gps.latitud }};
+  const centroLon = {{ ultimo_gps.longitud }};
+  {% else %}
+  const centroLat = alertasMapa[0].latitud;
+  const centroLon = alertasMapa[0].longitud;
+  {% endif %}
+
+  const map = L.map("mapa").setView([centroLat, centroLon], 13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap contributors"
   }).addTo(map);
-  L.marker([lat, lon])
+
+  {% if ultimo_gps %}
+  L.marker([centroLat, centroLon])
     .addTo(map)
-    .bindPopup(`<b>SMIC</b><br>${lat.toFixed(6)}, ${lon.toFixed(6)}`)
-    .openPopup();
+    .bindPopup(`<b>SMIC</b><br>${centroLat.toFixed(6)}, ${centroLon.toFixed(6)}`);
+  {% endif %}
+
+  // Cada alerta de manejo (somnolencia/distraccion) mandada por el
+  // SIM800L en el momento del evento, como su propio marcador -- el
+  // clip del evento no viaja por esta via, solo tipo + ubicacion (ver
+  // comunicacion/sim800l.py y camara/monitor.py disparar_evento).
+  const colorPorTipo = { somnolencia: "#da3633", distraccion: "#d29922" };
+  alertasMapa.forEach(function (a) {
+    if (a.latitud === null || a.longitud === null) return;
+    const color = colorPorTipo[a.tipo] || "#8957e5";
+    const fecha = new Date(a.timestamp).toLocaleString("es-AR");
+    L.circleMarker([a.latitud, a.longitud], {
+      radius: 8,
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.85,
+      weight: 2
+    })
+      .addTo(map)
+      .bindPopup(
+        `<b>${a.tipo.toUpperCase()}</b><br>${fecha}` +
+        (a.fuente_ubicacion ? `<br><span style="color:#8b949e">Ubicación: ${a.fuente_ubicacion}</span>` : "")
+      );
+  });
 </script>
 {% endif %}
 
