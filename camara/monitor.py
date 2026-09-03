@@ -16,6 +16,7 @@ from camara.distraccion import DetectorDistraccion
 from alertas.local      import alerta_somnolencia, alerta_distraccion
 from sensores.sincronizador import iniciar_sincronizador
 from camara.dashcam import Dashcam
+from comunicacion.sim800l import mandar_alerta_sim
 
 # --- CONSTANTES ---
 RESOLUCION_ANCHO     = 640
@@ -353,6 +354,19 @@ class MonitorConductor:
 
             if self.dashcam is not None:
                 self.dashcam.guardar_clip(tipo, self.evento_id_actual)
+
+            # Alerta + ubicacion por el SIM800L, en un hilo aparte para no
+            # trabar el loop de la camara mientras se mandan los comandos
+            # AT (puede tardar varios segundos). Esto NO manda el clip --
+            # el clip se graba y queda en la RPi4 (arriba y en
+            # _escritor_clips), y sensores/sincronizador.py lo sube recien
+            # cuando detecta conexion a la red local. Por el SIM800L solo
+            # viaja el tipo de evento + la ubicacion aproximada, que es lo
+            # unico que tiene sentido mandar por una conexion de datos
+            # movil mientras se esta manejando.
+            threading.Thread(
+                target=mandar_alerta_sim, args=(tipo,), daemon=True
+            ).start()
 
             if tipo == "SOMNOLENCIA":
                 threading.Thread(
