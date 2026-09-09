@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template
+from flask_login import login_required
 from models import EventoGPS, EventoSensor, EventoCamara, EventoSistema, EventoAlerta
 
 panel_bp = Blueprint("panel", __name__)
@@ -53,6 +54,7 @@ def _agrupar_por_evento(eventos):
 
 @panel_bp.route("/")
 @panel_bp.route("/inicio")
+@login_required
 def inicio():
     ultimo_gps = EventoGPS.query.order_by(EventoGPS.timestamp.desc()).first()
     alertas = (
