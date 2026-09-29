@@ -6,3 +6,4 @@ requests==2.32.3
 bleak==0.22.3
 cloudinary==1.41.0
 pyserial==3.5
+vercel>=0.10
