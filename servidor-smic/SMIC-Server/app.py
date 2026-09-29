@@ -14,9 +14,15 @@ from routes.auth import auth_bp, Admin
 def _normalizar_url_db(url):
     """Algunos proveedores (Heroku-style, Neon incluido a veces) todavía dan
     el prefijo viejo 'postgres://', que SQLAlchemy 2.x rechaza -- tiene que
-    ser 'postgresql://'."""
-    if url and url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://"):]
+    ser 'postgresql://'. Además se fuerza el driver 'psycopg2' de forma
+    explícita: sin esto, SQLAlchemy elige por default el dialecto 'psycopg'
+    (v3), que no está instalado (requirements.txt trae psycopg2-binary)."""
+    if not url:
+        return url
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
     return url
 
 
