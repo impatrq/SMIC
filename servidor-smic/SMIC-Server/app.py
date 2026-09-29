@@ -1,8 +1,23 @@
 import os
-from flask import Flask, request, Response, send_file
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from flask import Flask
+from flask_login import LoginManager
 from models import db
 from routes.api import api_bp
 from routes.panel import panel_bp
+from routes.auth import auth_bp, Admin
+
+
+def _normalizar_url_db(url):
+    """Algunos proveedores (Heroku-style, Neon incluido a veces) todavía dan
+    el prefijo viejo 'postgres://', que SQLAlchemy 2.x rechaza -- tiene que
+    ser 'postgresql://'."""
+    if url and url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
 
 
 def _migrar_columnas_nuevas(app):
@@ -10,7 +25,14 @@ def _migrar_columnas_nuevas(app):
     nuevas a una tabla que ya existe. eventos_camara puede venir de una
     base vieja sin 'fuente' ni 'evento_id' (agregadas para poder
     emparejar los clips de conductor y dashcam), asi que se agregan acá
-    a mano si hace falta. Idempotente: no hace nada si ya están."""
+    a mano si hace falta. Idempotente: no hace nada si ya están.
+
+    Solo aplica a SQLite (desarrollo local) -- una base Postgres nueva en
+    Vercel ya arranca con create_all() al día, y esta migración a mano
+    está escrita en sqlite3, no sirve para Postgres."""
+    if not app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:///"):
+        return
+
     import sqlite3
 
     ruta_db = app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")
@@ -43,13 +65,25 @@ def _migrar_columnas_nuevas(app):
 
 def create_app():
     app = Flask(__name__)
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///smic.db"
+
+    database_url = _normalizar_url_db(os.environ.get("DATABASE_URL"))
+    app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///smic.db"
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["SECRET_KEY"] = "smic-secret-key-2026"
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "smic-dev-secret-key")
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB max upload
 
     db.init_app(app)
 
+    login_manager = LoginManager()
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Iniciá sesión para ver esta página"
+    login_manager.init_app(app)
+
+    @login_manager.user_loader
+    def cargar_usuario(user_id):
+        return Admin.cargar(user_id)
+
+    app.register_blueprint(auth_bp)
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(panel_bp, url_prefix="/panel")
 
@@ -57,41 +91,11 @@ def create_app():
         _migrar_columnas_nuevas(app)
         db.create_all()
 
-    # ── STREAMING DE VIDEO CON RANGE REQUESTS ──
-    @app.route("/static/videos/<path:filename>")
-    def stream_video(filename):
-        ruta = os.path.join(app.static_folder, "videos", filename)
-        if not os.path.exists(ruta):
-            return Response("Not found", status=404)
-
-        tamanio = os.path.getsize(ruta)
-        rango   = request.headers.get("Range")
-
-        if not rango:
-            return send_file(ruta, mimetype="video/mp4")
-
-        # Parsear Range: bytes=inicio-fin
-        bytes_rango = rango.replace("bytes=", "")
-        inicio, *fin = bytes_rango.split("-")
-        inicio = int(inicio)
-        fin    = int(fin[0]) if fin and fin[0] else tamanio - 1
-        largo  = fin - inicio + 1
-
-        with open(ruta, "rb") as f:
-            f.seek(inicio)
-            datos = f.read(largo)
-
-        headers = {
-            "Content-Range":  f"bytes {inicio}-{fin}/{tamanio}",
-            "Accept-Ranges":  "bytes",
-            "Content-Length": str(largo),
-            "Content-Type":   "video/mp4",
-        }
-        return Response(datos, status=206, headers=headers)
-
     return app
 
 
+app = create_app()
+
+
 if __name__ == "__main__":
-    app = create_app()
     app.run(host="0.0.0.0", port=5000, debug=True)

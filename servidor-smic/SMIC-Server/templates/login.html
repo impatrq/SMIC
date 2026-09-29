@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMIC — Iniciar sesión</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #238636;
+      --red: #da3633;
+    }
+
+    body {
+      background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+
+    .login-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 32px; width: 100%; max-width: 340px;
+    }
+    .login-card img { height: 44px; display: block; margin: 0 auto 8px; }
+    .login-card h1 {
+      text-align: center; font-size: 18px; font-weight: 700; letter-spacing: 2px;
+      color: #fff; margin-bottom: 24px;
+    }
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    input {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); padding: 10px 12px; font-size: 14px; margin-bottom: 16px;
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    button {
+      width: 100%; background: var(--accent); border: none; border-radius: 6px;
+      color: #fff; font-size: 14px; font-weight: 600; padding: 10px; cursor: pointer;
+    }
+    button:hover { opacity: .9; }
+    .error {
+      background: rgba(218,54,51,.15); border: 1px solid rgba(218,54,51,.4); color: #f85149;
+      border-radius: 6px; padding: 8px 12px; font-size: 13px; margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <img src="{{ url_for('static', filename='smic_logo.png') }}" alt="SMIC Logo">
+    <h1>SMIC</h1>
+    {% with mensajes = get_flashed_messages() %}
+      {% if mensajes %}
+        <div class="error">{{ mensajes[0] }}</div>
+      {% endif %}
+    {% endwith %}
+    <form method="post">
+      <label for="usuario">Usuario</label>
+      <input type="text" id="usuario" name="usuario" autocomplete="username" required autofocus>
+      <label for="clave">Contraseña</label>
+      <input type="password" id="clave" name="clave" autocomplete="current-password" required>
+      <button type="submit">Ingresar</button>
+    </form>
+  </div>
+</body>
+</html>
