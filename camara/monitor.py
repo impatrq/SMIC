@@ -17,6 +17,7 @@ from alertas.local      import alerta_somnolencia, alerta_distraccion
 from sensores.sincronizador import iniciar_sincronizador
 from camara.dashcam import Dashcam
 from comunicacion.sim800l import mandar_alerta_sim
+from sensores.gps import iniciar_gps
 
 # --- CONSTANTES ---
 RESOLUCION_ANCHO     = 640
@@ -518,6 +519,10 @@ if __name__ == "__main__":
 
     crear_carpeta_eventos()
     iniciar_sincronizador()
+    # GPS GY-NEO6MV2 por UART3 (/dev/ttyAMA3): manda la posicion a
+    # /api/gps cada 10 s en un hilo aparte. Si el modulo no esta
+    # conectado solo avisa por consola, el monitor sigue funcionando.
+    iniciar_gps()
 
     camara = iniciar_camara()
 
