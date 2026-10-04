@@ -3,6 +3,11 @@ import re
 import json
 
 try:
+    from sensores.gps import ultima_posicion
+except Exception:  # sin GPS sigue andando con la ubicacion por antenas GSM
+    ultima_posicion = None
+
+try:
     import serial
     _PYSERIAL_DISPONIBLE = True
 except ImportError:
@@ -76,6 +81,25 @@ def _obtener_ubicacion(ser):
     return None
 
 
+# Si el ultimo fix del GPS es mas viejo que esto (en segundos) se descarta
+# y se usa la ubicacion aproximada por antenas GSM.
+EDAD_MAX_GPS = 60
+
+
+def _ubicacion_gps():
+    """Posicion del GPS (sensores/gps.py) si hay un fix reciente, o None."""
+    if ultima_posicion is None:
+        return None
+    try:
+        pos = ultima_posicion(max_edad=EDAD_MAX_GPS)
+    except Exception as e:
+        print(f"[SIM800L] No se pudo leer el GPS: {e}")
+        return None
+    if not pos:
+        return None
+    return {"lat": pos["latitud"], "lon": pos["longitud"]}
+
+
 def mandar_alerta_sim(tipo_evento):
     """Manda SOLO el tipo de evento + la ubicación aproximada al servidor,
     por la conexión de datos del SIM800L (independiente del WiFi/Ethernet
@@ -93,6 +117,10 @@ def mandar_alerta_sim(tipo_evento):
     if not _PYSERIAL_DISPONIBLE:
         return False
 
+    # La posicion se toma AHORA, en el momento del evento: abrir el GPRS
+    # tarda varios segundos y a velocidad de ruta el auto ya se movio.
+    ubicacion_gps = _ubicacion_gps()
+
     try:
         ser = serial.Serial(PUERTO, BAUD, timeout=2)
     except Exception as e:
@@ -108,14 +136,17 @@ def mandar_alerta_sim(tipo_evento):
         print("[SIM800L] Sin GPRS en este momento, no se pudo mandar la alerta")
         return False
 
-    ubicacion = _obtener_ubicacion(ser)
+    if ubicacion_gps:
+        ubicacion, fuente = ubicacion_gps, "GPS"
+    else:
+        ubicacion, fuente = _obtener_ubicacion(ser), "GSM"
 
     payload = {
         "tipo": tipo_evento.lower(),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "lat": ubicacion["lat"] if ubicacion else None,
         "lon": ubicacion["lon"] if ubicacion else None,
-        "fuente_ubicacion": "GSM" if ubicacion else None,
+        "fuente_ubicacion": fuente if ubicacion else None,
     }
     body = json.dumps(payload)
 
