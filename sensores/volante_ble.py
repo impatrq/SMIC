@@ -1,10 +1,12 @@
 import asyncio
 import json
 import threading
+import os
 import requests
 from bleak import BleakClient, BleakScanner
 
-SERVER              = "http://192.168.137.1:5000"
+SERVER              = os.environ.get("SMIC_SERVER_URL", "https://smic-henna.vercel.app")
+API_KEY             = os.environ.get("SMIC_API_KEY", "")
 NOMBRE_ESP32        = "SMIC-Volante"
 CHARACTERISTIC_UUID = "abcdefab-cdef-abcd-efab-cdefabcdefab"
 
@@ -15,7 +17,8 @@ ultimo_dato = {
 
 def _post(url, datos):
     try:
-        requests.post(url, json=datos, timeout=2)
+        headers = {"X-API-Key": API_KEY} if API_KEY else {}
+        requests.post(url, json=datos, headers=headers, timeout=10)
     except Exception as e:
         print(f"[SERVER] Error: {e}")
 

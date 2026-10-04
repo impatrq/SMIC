@@ -9,7 +9,7 @@ from datetime import datetime
 # (http://192.168.137.1:5000), que solo funcionaba mientras la RPi estaba
 # enganchada a ese hotspot -- con esto sincroniza apenas tenga cualquier
 # conexión a internet (WiFi de casa, etc).
-SERVER = os.environ.get("SMIC_SERVER_URL", "https://CAMBIAR-por-tu-url.vercel.app")
+SERVER = os.environ.get("SMIC_SERVER_URL", "https://smic-henna.vercel.app")
 
 # Mismo header que exige routes/api.py (@requiere_api_key) en /api/video,
 # /api/resumen, etc. Configurar como variable de entorno en la RPi, mismo
@@ -58,7 +58,7 @@ def listar_clips():
 def hay_conexion():
     """Verifica si el servidor está accesible."""
     try:
-        requests.get(f"{SERVER}/api/resumen", headers=_headers_api(), timeout=3)
+        requests.get(f"{SERVER}/api/resumen", headers=_headers_api(), timeout=20)
         return True
     except Exception:
         return False
