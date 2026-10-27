@@ -16,8 +16,10 @@ from camara.distraccion import DetectorDistraccion
 from alertas.local      import alerta_somnolencia, alerta_distraccion
 from sensores.sincronizador import iniciar_sincronizador
 from camara.dashcam import Dashcam
-from comunicacion.sim800l import mandar_alerta_sim
+from camara.usb_cam import abrir_webcam, liberar_webcam
+from comunicacion.alerta_ppp import mandar_alerta_sim
 from sensores.gps import iniciar_gps
+from sensores.volante_ble import iniciar_volante
 
 # --- CONSTANTES ---
 RESOLUCION_ANCHO     = 640
@@ -30,6 +32,20 @@ COOLDOWN_DISTRACCION = 5
 ALTO_PANEL           = 160
 CARPETA_EVENTOS      = os.path.expanduser("~/SMIC/eventos")
 
+# Webcam USB de la camara del conductor (antes: Pi Camera Module 2 por CSI).
+#
+# Se identifica por el PUERTO USB donde esta enchufada, con el link estable
+# de /dev/v4l/by-path/ (ver camara/usb_cam.py para el por que). Para saber
+# que valor poner, correr en la Raspberry:
+#     python3 ~/SMIC/camara/usb_cam.py
+# y pegar aca la ruta de la camara que mira al conductor, por ejemplo:
+#     CAMARA_CONDUCTOR = "/dev/v4l/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.3:1.0-video-index0"
+#
+# Con None se usa la primera webcam USB libre (sirve para probar, pero el
+# orden no esta garantizado: puede tomar la del camino). Una vez fijado,
+# la camara tiene que quedar SIEMPRE en ese mismo puerto USB.
+CAMARA_CONDUCTOR     = None
+
 # Subcarpeta oculta donde se escriben los clips MIENTRAS se estan
 # grabando. sensores/sincronizador.py solo mira los archivos directos
 # de CARPETA_EVENTOS (no entra a subcarpetas), asi que nunca ve un
@@ -39,51 +55,68 @@ CARPETA_TEMPORAL    = os.path.join(CARPETA_EVENTOS, ".en_progreso")
 
 
 # --- FUNCIONES ---
+class _CamaraUSB:
+    """Envoltorio minimo: la VideoCapture + la ruta real del dispositivo
+    (para poder liberarlo bien al cerrar)."""
+    def __init__(self, captura, ruta_real):
+        self.captura   = captura
+        self.ruta_real = ruta_real
+
+
 def iniciar_camara():
     """
-    Inicializa la Raspberry Pi Camera Module usando Picamera2.
-    Devuelve el objeto Picamera2 o None si falla.
+    Inicializa la webcam USB del conductor con OpenCV (V4L2).
+    Devuelve el objeto de camara o None si falla.
     """
     try:
-        from picamera2 import Picamera2
-        camara = Picamera2()
-        config = camara.create_preview_configuration(
-            main={
-                "format": "BGR888",
-                "size": (RESOLUCION_ANCHO, RESOLUCION_ALTO)
-            },
-            controls={"ScalerCrop": (0, 0, 3280, 2464)}
+        captura, ruta_real = abrir_webcam(
+            CAMARA_CONDUCTOR,
+            RESOLUCION_ANCHO,
+            RESOLUCION_ALTO,
+            FPS,
+            etiqueta="CONDUCTOR"
         )
-        camara.start()
-        time.sleep(2)
+        if captura is None:
+            print("Error al iniciar camara: no se pudo abrir la webcam del conductor")
+            return None
+
+        # Si la webcam no soporta exactamente 640x480, el resto del
+        # programa (panel, VideoWriter) igual necesita ese tamaño:
+        # capturar_frame() redimensiona en ese caso.
         print("Camara iniciada correctamente")
-        return camara
+        return _CamaraUSB(captura, ruta_real)
     except Exception as e:
         print(f"Error al iniciar camara: {e}")
         return None
 
 
 def cerrar_camara(camara):
-    """Detiene la Picamera2."""
-    camara.stop()
+    """Libera la webcam del conductor."""
+    liberar_webcam(camara.captura, camara.ruta_real)
     print("Camara cerrada correctamente")
 
 
 def capturar_frame(camara):
     """
-    Captura un frame BGR desde la Picamera2.
+    Captura un frame BGR desde la webcam USB. Devuelve None si la
+    lectura falla (por ejemplo, se desenchufo la camara).
 
-    NOTA DE RENDIMIENTO: cv2.cvtColor() siempre devuelve un array
-    NUEVO (nunca modifica el original). Eso significa que el frame
-    que devuelve esta funcion es, en cada llamada, un bloque de
-    memoria recien creado que ningun otro lugar del programa vuelve a
-    tocar despues. Mas abajo, en MonitorConductor, esto se aprovecha
-    para NO copiar el frame antes de guardarlo en el buffer de video.
-    Si el dia de mañana esta funcion cambia para reciclar un mismo
-    array, hay que revisar ese supuesto en MonitorConductor.procesar_frame().
+    La webcam ya entrega BGR (el formato nativo de OpenCV), asi que ya
+    no hace falta el cv2.cvtColor() que necesitaba la Picamera2.
+
+    NOTA DE RENDIMIENTO: VideoCapture.read() (sin pasarle un array de
+    salida) devuelve en cada llamada un array NUEVO, que ningun otro
+    lugar del programa vuelve a tocar despues. Mas abajo, en
+    MonitorConductor, esto se aprovecha para NO copiar el frame antes
+    de guardarlo en el buffer de video. Si el dia de mañana esta
+    funcion cambia para reciclar un mismo array, hay que revisar ese
+    supuesto en MonitorConductor.procesar_frame().
     """
-    frame = camara.capture_array()
-    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    ret, frame = camara.captura.read()
+    if not ret or frame is None:
+        return None
+    if frame.shape[1] != RESOLUCION_ANCHO or frame.shape[0] != RESOLUCION_ALTO:
+        frame = cv2.resize(frame, (RESOLUCION_ANCHO, RESOLUCION_ALTO))
     return frame
 
 
@@ -180,11 +213,11 @@ class CapturaHilo:
     frame N (~35-45ms de MediaPipe), este hilo ya esta capturando el
     frame N+1 en paralelo. En el mejor caso tiempo_por_frame pasa a
     ser aproximadamente max(tiempo_captura, tiempo_analisis) en vez de
-    la suma de los dos. Esto funciona porque tanto Picamera2.capture_array()
-    (espera al hardware/DMA) como el process() de MediaPipe (computo
-    pesado en C++/TFLite) liberan el GIL de Python mientras trabajan,
-    asi que pueden correr de verdad al mismo tiempo en nucleos
-    distintos de la Raspberry Pi.
+    la suma de los dos. Esto funciona porque tanto VideoCapture.read()
+    (espera al driver V4L2 y decodifica el MJPG) como el process() de
+    MediaPipe (computo pesado en C++/TFLite) liberan el GIL de Python
+    mientras trabajan, asi que pueden correr de verdad al mismo tiempo
+    en nucleos distintos de la Raspberry Pi.
 
     Sincronizacion (importante): este hilo expone solo el frame MAS
     RECIENTE, no una cola con todos los frames capturados. El hilo
@@ -214,6 +247,13 @@ class CapturaHilo:
         siempre el ultimo disponible para quien lo pida."""
         while self.activo:
             frame = capturar_frame(self.camara)
+            if frame is None:
+                # Lectura fallida (webcam desenchufada o colgada): no
+                # publicar nada y esperar un instante en vez de saturar
+                # el CPU. El hilo principal se entera por el timeout de
+                # obtener_frame_mas_reciente().
+                time.sleep(0.05)
+                continue
             with self.lock:
                 self.frame_actual = frame
                 self.contador_frames += 1
@@ -523,7 +563,13 @@ if __name__ == "__main__":
     # /api/gps cada 10 s en un hilo aparte. Si el modulo no esta
     # conectado solo avisa por consola, el monitor sigue funcionando.
     iniciar_gps()
+    # Volante BLE (ESP32 'SMIC-Volante'): recibe el contacto en un hilo aparte.
+    # Si no hay Bluetooth o la ESP32 no esta, reintenta sin frenar el monitor.
+    iniciar_volante()
 
+    # IMPORTANTE: la camara del conductor se abre ANTES que la dashcam.
+    # Asi, si alguna de las dos quedo en None (deteccion automatica), la
+    # del conductor elige primero y la dashcam se queda con la otra.
     camara = iniciar_camara()
 
     try:
@@ -537,6 +583,8 @@ if __name__ == "__main__":
 
     if camara is None:
         print("No se pudo iniciar la camara")
+        if dashcam is not None:
+            dashcam.cerrar()
         sys.exit(1)
 
     frame_count   = 0
@@ -575,7 +623,7 @@ if __name__ == "__main__":
     finally:
         # Frenar el hilo de captura ANTES de cerrar la camara: si
         # cerramos la camara mientras ese hilo todavia esta a mitad
-        # de un capture_array(), puede tirar un error feo al salir.
+        # de un read(), puede tirar un error feo al salir.
         captura.detener()
         cerrar_camara(camara)
         if dashcam is not None:
