@@ -8,31 +8,39 @@ segundos ANTES del evento (que ya estaban en el buffer) mas los segundos
 DESPUES del evento (que sigue capturando en tiempo real).
 
 Funciona en paralelo a camara/monitor.py, cada una maneja su propia camara:
-- monitor.py -> Picamera2 (CSI) -> camara del conductor
-- dashcam.py -> cv2.VideoCapture (USB) -> camara del camino
+- monitor.py -> webcam USB (puerto CAMARA_CONDUCTOR) -> camara del conductor
+- dashcam.py -> webcam USB (puerto DASHCAM_CAMARA)   -> camara del camino
 """
 
 import cv2
 import time
 import threading
 import os
+import sys
 from collections import deque
 from datetime import datetime
 
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from camara.usb_cam import abrir_webcam, liberar_webcam
+
 # ==================== CONFIGURACION ====================
 
-# La "GENERAL WEBCAM" expone 2 nodos /dev/videoN para la misma camara
-# fisica (uno de captura real, con formatos MJPG/YUYV, y otro que solo
-# sirve metadata). Antes esto estaba fijo en un indice (1), pero el
-# orden en que Linux asigna esos numeros puede cambiar entre reinicios
-# segun el momento en que USB detecta cada nodo -- cuando el orden
-# cambiaba, el indice fijo apuntaba al nodo de metadata, que "abre"
-# sin error pero nunca entrega un frame real, y la dashcam quedaba sin
-# funcionar sin ninguna pista clara de por que.
+# Webcam USB del camino. Antes se probaban los indices [1, 0] porque era
+# la unica webcam, pero ahora hay DOS webcams USB (conductor + camino) y
+# los numeros /dev/videoN cambian segun el orden de deteccion al arrancar:
+# probar indices podia terminar grabando al conductor en vez del camino.
 #
-# Ahora se prueban estos indices en orden y se usa el primero que
-# realmente entrega un frame al leerlo (no solo el que "abre").
-DASHCAM_INDICES_CANDIDATOS = [1, 0]
+# Ahora se identifica por el PUERTO USB, con el link estable de
+# /dev/v4l/by-path/ (ver camara/usb_cam.py). Para saber que valor poner:
+#     python3 ~/SMIC/camara/usb_cam.py
+# y pegar aca la ruta de la camara que mira al camino.
+#
+# Con None se usa la primera webcam USB que este libre. Como monitor.py
+# abre la camara del conductor ANTES que la dashcam, la dashcam se queda
+# con la otra -- pero cual es "la primera" depende del puerto, asi que
+# conviene fijar las dos.
+DASHCAM_CAMARA = None
 
 RESOLUCION_ANCHO = 640
 RESOLUCION_ALTO = 480
@@ -58,53 +66,24 @@ CARPETA_EVENTOS = os.path.expanduser("~/SMIC/eventos")
 CARPETA_TEMPORAL = os.path.join(CARPETA_EVENTOS, ".en_progreso")
 
 
-def _abrir_camara_dashcam(indices_candidatos):
-    """
-    Prueba abrir la webcam en varios indices posibles y devuelve la
-    primera que realmente puede capturar un frame (no alcanza con que
-    cv2.VideoCapture la "abra": el nodo de metadata tambien abre sin
-    error, pero nunca da un frame util al leerlo).
-
-    Devuelve (camara, indice_usado) o (None, None) si ninguno sirvio.
-    """
-    for idx in indices_candidatos:
-        camara = cv2.VideoCapture(idx)
-
-        if not camara.isOpened():
-            camara.release()
-            continue
-
-        camara.set(cv2.CAP_PROP_FRAME_WIDTH, RESOLUCION_ANCHO)
-        camara.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION_ALTO)
-        camara.set(cv2.CAP_PROP_FPS, FPS)
-
-        ret, frame = camara.read()
-        if ret and frame is not None:
-            print(f"[DASHCAM] Camara encontrada en el indice {idx}")
-            return camara, idx
-
-        camara.release()
-
-    return None, None
-
-
 # ==================== CLASE DASHCAM ====================
 
 class Dashcam:
     """Maneja la webcam delantera con un buffer circular en memoria."""
 
-    def __init__(self, index=None):
-        # Si se pasa un indice explicito, se respeta tal cual (por si
-        # alguna vez hace falta forzar uno puntual). Si no, se prueban
-        # los candidatos conocidos en orden.
-        candidatos = [index] if index is not None else DASHCAM_INDICES_CANDIDATOS
+    def __init__(self, dispositivo=None):
+        # Si se pasa un dispositivo explicito (ruta by-path, /dev/videoN
+        # o int), se respeta tal cual. Si no, se usa DASHCAM_CAMARA.
+        if dispositivo is None:
+            dispositivo = DASHCAM_CAMARA
 
-        self.camara, indice_usado = _abrir_camara_dashcam(candidatos)
+        self.camara, self.ruta_real = abrir_webcam(
+            dispositivo, RESOLUCION_ANCHO, RESOLUCION_ALTO, FPS, etiqueta="DASHCAM"
+        )
 
         if self.camara is None:
             raise RuntimeError(
-                f"No se pudo abrir la dashcam en ninguno de los indices "
-                f"probados: {candidatos}"
+                f"No se pudo abrir la dashcam ({dispositivo or 'deteccion automatica'})"
             )
 
         # deque con maxlen: cuando se llena, cada frame nuevo empuja
@@ -130,7 +109,7 @@ class Dashcam:
         self.hilo_captura = threading.Thread(target=self._capturar_loop, daemon=True)
         self.hilo_captura.start()
 
-        print(f"Dashcam iniciada correctamente (indice {indice_usado})")
+        print(f"Dashcam iniciada correctamente ({self.ruta_real})")
 
     def _capturar_loop(self):
         """Corre en un hilo aparte. Lee frames de la webcam sin parar
@@ -138,6 +117,10 @@ class Dashcam:
         while self.activo:
             ret, frame = self.camara.read()
             if ret:
+                # El VideoWriter necesita exactamente este tamaño; si la
+                # webcam no respeto la resolucion pedida, se ajusta aca.
+                if frame.shape[1] != RESOLUCION_ANCHO or frame.shape[0] != RESOLUCION_ALTO:
+                    frame = cv2.resize(frame, (RESOLUCION_ANCHO, RESOLUCION_ALTO))
                 with self.lock:
                     self.buffer.append(frame.copy())
                     self.contador_frames += 1
@@ -229,7 +212,7 @@ class Dashcam:
         apagar el sistema."""
         self.activo = False
         self.hilo_captura.join(timeout=2)
-        self.camara.release()
+        liberar_webcam(self.camara, self.ruta_real)
         print("Dashcam cerrada correctamente")
 
 

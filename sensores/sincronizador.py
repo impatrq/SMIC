@@ -9,7 +9,7 @@ from datetime import datetime
 # (http://192.168.137.1:5000), que solo funcionaba mientras la RPi estaba
 # enganchada a ese hotspot -- con esto sincroniza apenas tenga cualquier
 # conexión a internet (WiFi de casa, etc).
-SERVER = os.environ.get("SMIC_SERVER_URL", "https://CAMBIAR-por-tu-url.vercel.app")
+SERVER = os.environ.get("SMIC_SERVER_URL", "https://smic-henna.vercel.app")
 
 # Mismo header que exige routes/api.py (@requiere_api_key) en /api/video,
 # /api/resumen, etc. Configurar como variable de entorno en la RPi, mismo
@@ -55,10 +55,22 @@ def listar_clips():
     ])
 
 
+def _por_ppp():
+    """True si la salida a internet es ppp0 (datos moviles): no subir clips."""
+    try:
+        import subprocess
+        out = subprocess.run(["ip", "route", "get", "1.1.1.1"], capture_output=True, text=True, timeout=3).stdout
+        return " dev ppp" in out
+    except Exception:
+        return False
+
+
 def hay_conexion():
     """Verifica si el servidor está accesible."""
+    if _por_ppp():
+        return False
     try:
-        requests.get(f"{SERVER}/api/resumen", headers=_headers_api(), timeout=3)
+        requests.get(f"{SERVER}/api/resumen", headers=_headers_api(), timeout=20)
         return True
     except Exception:
         return False
@@ -153,7 +165,25 @@ def enviar_clip(ruta_clip):
             datos = f.read()
 
         with BlobClient() as cliente:
-            blob = cliente.put(f"videos/{nombre_subida}", datos, access="public")
+            # Si un intento anterior ya subio el archivo al Blob pero
+            # fallo despues (por ejemplo el POST a /api/video), el
+            # reintento usa el mismo nombre y Vercel Blob lo rechaza con
+            # "This blob already exists". Se permite pisarlo. El nombre
+            # del parametro cambia segun la version de la libreria
+            # (overwrite en las 0.10-0.x, allow_overwrite en las nuevas),
+            # asi que se elige el que exista.
+            opciones = {}
+            try:
+                import inspect
+                params = inspect.signature(cliente.put).parameters
+                if "allow_overwrite" in params:
+                    opciones["allow_overwrite"] = True
+                elif "overwrite" in params:
+                    opciones["overwrite"] = True
+            except Exception:
+                opciones["overwrite"] = True
+            blob = cliente.put(f"videos/{nombre_subida}", datos,
+                               access="public", **opciones)
 
         r = requests.post(
             f"{SERVER}/api/video",

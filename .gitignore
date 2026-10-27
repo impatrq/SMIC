@@ -1,7 +1,31 @@
-﻿venv/
+venv/
 __pycache__/
 *.pyc
+
+# Claves y entornos (el .env.local del servidor tiene tokens)
 .env
+.env*
+.vercel
+
+# Bases de datos locales
 *.db
+
+# Copias de respaldo y scripts de parche de trabajo
+*.bak
+*.bak*
+fix_*.py
+Claude outputs/
+
+# Videos y subidas del servidor
 servidor-smic/SMIC-Server/static/videos/
 servidor-smic/SMIC-Server/static/uploads/
+
+# Cola local de alertas de la Pi
+cola_alertas.jsonl
+
+# Herramientas / editores
+.pio/
+.vscode/
+.claude/
+.history/
+~*.lck

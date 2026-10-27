@@ -1,0 +1,5 @@
+dtoverlay=vc4-kms-v3d
+dtoverlay=dwc2,dr_mode=host
+dtoverlay=w1-gpio
+dtoverlay=miniuart-bt
+dtoverlay=uart3
