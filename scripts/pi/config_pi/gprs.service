@@ -1,0 +1,12 @@
+[Unit]
+Description=SMIC - PPP por SIM800L
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/pppd call gprs
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

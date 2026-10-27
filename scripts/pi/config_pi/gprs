@@ -1,0 +1,19 @@
+/dev/serial0
+115200
+nocrtscts
+lock
+noauth
+noipdefault
+defaultroute
+# metrica alta: WiFi/Ethernet (100-600) siempre tienen prioridad sobre ppp0
+defaultroute-metric 700
+persist
+maxfail 0
+holdoff 20
+nodetach
+noccp
+novj
+#lcp-echo-interval 30
+#lcp-echo-failure 4
+connect "/usr/sbin/chat -v -f /etc/chatscripts/gprs-connect"
+disconnect "/usr/sbin/chat -v -f /etc/chatscripts/gprs-disconnect"

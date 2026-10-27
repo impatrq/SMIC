@@ -1,0 +1,17 @@
+[Unit]
+Description=SMIC - Monitor de conductor
+# gprs.service da la salida por SIM800L; si falla, el monitor igual arranca.
+After=gprs.service
+Wants=gprs.service
+
+[Service]
+Type=simple
+User=proyecto-smic
+WorkingDirectory=/home/proyecto-smic/SMIC
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/proyecto-smic/SMIC/venv/bin/python -u -m camara.monitor
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
